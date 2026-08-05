@@ -83,14 +83,23 @@ class Trigger:
     rule: str
     level: float
     price: float
-    distance_pct: float
+    distance_pct: float | None
     volume_ratio: float | None
     rsi: float | None
     bar_timestamp: str
     watchlist: str
 
 
-def _distance_pct(price: float, level: float) -> float:
+def _distance_pct(price: float, level: float) -> float | None:
+    """`None` if `level` cannot produce a meaningful distance, rather than a
+    `ZeroDivisionError` that would crash a scheduled run. `level` for most
+    rules is computed here (an SMA, a prior high/low), but for `armed_level`
+    it comes from caller data -- `--armed` CLI floats today, a DB value in
+    a later phase -- so a non-positive level is reachable and must be
+    skipped, not trusted (see engine/indicators.py's return-None philosophy).
+    """
+    if level <= 0:
+        return None
     return abs(price - level) / level * 100.0
 
 
@@ -148,14 +157,15 @@ def evaluate(
                 )
                 continue
 
-        if _distance_pct(price, ma) <= rules.ma_proximity_pct:
+        ma_distance = _distance_pct(price, ma)
+        if ma_distance is not None and ma_distance <= rules.ma_proximity_pct:
             triggers.append(
                 Trigger(
                     ticker=ticker,
                     rule="ma_proximity",
                     level=ma,
                     price=price,
-                    distance_pct=_distance_pct(price, ma),
+                    distance_pct=ma_distance,
                     volume_ratio=current_volume_ratio,
                     rsi=current_rsi,
                     bar_timestamp=bar_timestamp,
@@ -195,6 +205,12 @@ def evaluate(
 
     if previous_close is not None:
         for level in armed:
+            if level <= 0:
+                # `armed` is caller data (--armed CLI floats today, a DB
+                # value in a later phase), not something computed here --
+                # a non-positive level cannot produce a meaningful distance,
+                # so it is skipped rather than crashing the whole ticker.
+                continue
             crossed = (previous_close < level <= price) or (previous_close > level >= price)
             if crossed:
                 triggers.append(

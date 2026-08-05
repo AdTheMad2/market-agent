@@ -156,6 +156,21 @@ def test_armed_level_fires_when_crossed(rules):
     assert triggers[0].price == 351.0
 
 
+def test_armed_level_skipped_when_non_positive(rules):
+    # Finding 4: `armed` is caller data (--armed CLI floats today, a DB value
+    # later), not something computed here -- a non-positive level cannot
+    # produce a meaningful distance. It must be skipped, not crash the whole
+    # ticker with a ZeroDivisionError, matching engine/indicators.py's
+    # philosophy of returning None over raising on a scheduled run.
+    bars = flat_bars(100.0, 20)
+    bars[-2] = Bar(t="2026-08-04T00:00:00Z", o=-1.0, h=-1.0, l=-1.0, c=-1.0, v=1_000_000)
+    bars[-1] = Bar(t="2026-08-05T00:00:00Z", o=1.0, h=1.0, l=1.0, c=1.0, v=1_000_000)
+    triggers = [
+        t for t in evaluate("GOOG", bars, rules, armed=[0.0, -5.0]) if t.rule == "armed_level"
+    ]
+    assert triggers == []
+
+
 def test_armed_level_silent_when_not_crossed(rules):
     bars = flat_bars(100.0, 20)
     bars[-2] = Bar(t="2026-08-04T00:00:00Z", o=340.0, h=340.0, l=340.0, c=340.0, v=1_000_000)
