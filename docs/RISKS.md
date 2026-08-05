@@ -310,3 +310,37 @@ would have passed. Recorded because the same two mistakes are latent in Phase 5.
 Also fixed: the Alpaca probe sent no `start`, and Alpaca answers HTTP 200 with an empty
 `bars` list rather than defaulting to a window. `limit` was removed too — it truncates from
 the *start* of the range, so the probe was checking the oldest bar while claiming freshness.
+
+### 2026-08-05 — Telegram delivery verified, and what the gate had missed
+
+`scripts/verify_delivery.py` exits 0: HTTP 200, `message_id=3`, delivered to the private
+chat. **This is the check that closes the Telegram row in the deploy checklist.**
+
+It failed the first time, and the failure is the point. `verify_quotas.py` had been
+reporting Telegram **OK** throughout, because it calls `getMe` — which authenticates the
+*token* and says nothing about the destination. `TELEGRAM_CHAT_ID` had been filled in with
+the bot's own ID (copied from a `getMe` response, and a plausible-looking 10-digit number),
+so every alert this project ever sent would have gone nowhere while the gate stayed green.
+The real send returned `403 Forbidden: the bot can't send messages to the bot`.
+
+Root cause of the wrong ID: `getUpdates` returned zero updates because the bot had never
+been messaged, so there was no chat ID to read and the nearest available number was used.
+Telegram will not disclose a chat ID until the user initiates contact.
+
+**Rule this establishes, and R-1's real shape:** a probe must exercise the property being
+relied on, not a property adjacent to it. Authentication is not delivery, a 200 is not
+data, and a listed model is not a callable one. All three appeared in a single day:
+
+| Probe | Reported | Actually true |
+|---|---|---|
+| Telegram `getMe` | OK | Messages went to the bot itself |
+| Gemini `generateContent` | 200 | Empty candidate, no text |
+| Alpaca `/bars` | 200 | Zero bars |
+
+`verify_delivery.py` now names this specific 403 and explains it, and reconfigures stdout
+to UTF-8 — a Telegram display name is arbitrary Unicode and the cp1252 console raises
+`UnicodeEncodeError` rather than degrading (see also R-9's encoding note).
+
+`TELEGRAM_TEST_CHAT_ID` remains unset, so the test message went to the live alert chat.
+Acceptable now; it must be set before Phase 4's dry runs, or a dry run will be
+indistinguishable from a real alert.

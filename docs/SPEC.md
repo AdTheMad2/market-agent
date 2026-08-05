@@ -394,6 +394,7 @@ market project/
 ├── scripts/                        ← every verification script, committed
 │   ├── verify_quotas.py
 │   ├── verify_secrets.py
+│   ├── verify_delivery.py
 │   └── verify_pipeline.py
 ├── data/                           ← committed state
 │   ├── market.db                   ← SQLite: bars, armed levels, sent ledger
@@ -418,6 +419,7 @@ committed to `scripts/`**, so it can be re-run after every change to that subsys
 |---|---|
 | `verify_quotas.py` | Every provider's free tier still exists and still returns data at the documented limit |
 | `verify_secrets.py` | Every required secret is present, and no secret appears in the working tree |
+| `verify_delivery.py` | A real message reaches the Telegram chat. `getMe` authenticates the token and passes even when the destination is wrong — only a send proves delivery |
 | `verify_pipeline.py` | End-to-end dry run: fetch → engine → rank → render → **Telegram test chat**, no live alert sent |
 
 A phase is not done because code exists. It is done when the observable check in
