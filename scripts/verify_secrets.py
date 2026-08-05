@@ -25,6 +25,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._dotenv import load_env  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ENV_EXAMPLE = REPO_ROOT / "config" / ".env.example"
 
@@ -95,6 +99,8 @@ def scan_files_for_values(
 
 
 def main() -> int:
+    load_env(REPO_ROOT / ".env")
+
     names = required_names(ENV_EXAMPLE)
     env = dict(os.environ)
 
