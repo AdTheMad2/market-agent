@@ -147,6 +147,26 @@ watchlist holds **tickers only** — no sizes, no entries, no account state.
 
 ---
 
+### R-9 — Python 3.14 on the host, ahead of the scientific stack
+**Likelihood:** already the case. The host runs **Python 3.14.0**; the plan assumed 3.12.
+
+**Impact:** none in Phase 0 — it needs only `requests` and `pyyaml`, both of which
+installed cleanly. The exposure is Phase 2, where `pandas-market-calendars` (and
+transitively `pandas`) are needed for the trading-calendar check. Wheels for new CPython
+releases can lag by months, and building from source on Windows is a bad afternoon.
+
+**Mitigation:** `engine/` is deliberately pure Python with no pandas dependency, so the
+indicator maths is unaffected either way. If `pandas-market-calendars` will not install,
+the fallback is `exchange_calendars`, and failing that a hand-maintained US market holiday
+list in `config/` — the data is a dozen dates a year and changes annually. Confirm the
+install at the **start** of Phase 2, not the middle.
+
+**Alternative if it bites:** pin the GitHub Actions runner to `python-version: "3.12"`,
+which decouples CI from the local host entirely. The local machine only needs to run the
+verification scripts.
+
+---
+
 ## 3. Open questions
 
 ### OQ-1 — Private Discord community ingestion
@@ -230,3 +250,15 @@ Re-run `scripts/verify_quotas.py` and append a dated block here whenever it runs
 
 **Everything above is vendor-documented, not yet confirmed against a live key.** Phase 0
 exists to close that gap, and its output belongs in this section.
+
+### 2026-08-05 — `scripts/verify_quotas.py` written, run with no keys
+
+All seven providers reported `SKIP` (no key set), which is the expected result and confirms
+the script degrades gracefully rather than crashing while keys are still being collected.
+**No live verification has happened yet.** The next block in this section must be a run
+where nothing is skipped.
+
+`scripts/verify_secrets.py` exits 1 (nine required names unset, one optional unset) with an
+empty leak report across 25 tracked files. Its leak detector was confirmed working
+end-to-end against a planted fake value: exit 2, correct file named, value absent from the
+report.
