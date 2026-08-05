@@ -83,7 +83,7 @@ class Trigger:
     rule: str
     level: float
     price: float
-    distance_pct: float | None
+    distance_pct: float
     volume_ratio: float | None
     rsi: float | None
     bar_timestamp: str
@@ -142,19 +142,21 @@ def evaluate(
         if rules.ma_cross_enabled and previous_close is not None:
             crossed = (previous_close < ma <= price) or (previous_close > ma >= price)
             if crossed:
-                triggers.append(
-                    Trigger(
-                        ticker=ticker,
-                        rule="ma_cross",
-                        level=ma,
-                        price=price,
-                        distance_pct=_distance_pct(price, ma),
-                        volume_ratio=current_volume_ratio,
-                        rsi=current_rsi,
-                        bar_timestamp=bar_timestamp,
-                        watchlist=watchlist,
+                cross_distance = _distance_pct(price, ma)
+                if cross_distance is not None:
+                    triggers.append(
+                        Trigger(
+                            ticker=ticker,
+                            rule="ma_cross",
+                            level=ma,
+                            price=price,
+                            distance_pct=cross_distance,
+                            volume_ratio=current_volume_ratio,
+                            rsi=current_rsi,
+                            bar_timestamp=bar_timestamp,
+                            watchlist=watchlist,
+                        )
                     )
-                )
                 continue
 
         ma_distance = _distance_pct(price, ma)
@@ -189,19 +191,21 @@ def evaluate(
             elif price < prior_low:
                 level = prior_low
             if level is not None:
-                triggers.append(
-                    Trigger(
-                        ticker=ticker,
-                        rule="range_break",
-                        level=level,
-                        price=price,
-                        distance_pct=_distance_pct(price, level),
-                        volume_ratio=current_volume_ratio,
-                        rsi=current_rsi,
-                        bar_timestamp=bar_timestamp,
-                        watchlist=watchlist,
+                range_distance = _distance_pct(price, level)
+                if range_distance is not None:
+                    triggers.append(
+                        Trigger(
+                            ticker=ticker,
+                            rule="range_break",
+                            level=level,
+                            price=price,
+                            distance_pct=range_distance,
+                            volume_ratio=current_volume_ratio,
+                            rsi=current_rsi,
+                            bar_timestamp=bar_timestamp,
+                            watchlist=watchlist,
+                        )
                     )
-                )
 
     if previous_close is not None:
         for level in armed:

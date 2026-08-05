@@ -87,6 +87,19 @@ def test_ma_proximity_silent_outside_threshold(rules):
     assert evaluate("GOOG", bars, rules, armed=[]) == []
 
 
+def test_ma_proximity_skipped_when_level_non_positive(rules):
+    # 50 closes flat at 0.0 -> sma_50 == 0.0, a non-positive level for which
+    # _distance_pct returns None. Nothing here is impossible test data: a
+    # Bar's close is just a float with no positivity constraint, so a data
+    # gap or bad fixture producing zero/negative closes is reachable, unlike
+    # range_break's prior high/low. previous_close == price == 0.0 keeps the
+    # ma_cross branch from firing first, isolating the proximity check: it
+    # must skip rather than construct a Trigger carrying a None distance.
+    bars = flat_bars(0.0, 50)
+    triggers = [t for t in evaluate("GOOG", bars, rules, armed=[]) if t.rule == "ma_proximity"]
+    assert triggers == []
+
+
 # --- ma_cross -------------------------------------------------------------
 
 
@@ -113,7 +126,34 @@ def test_ma_cross_silent_when_price_stays_on_same_side(rules):
     assert evaluate("GOOG", bars, rules, armed=[]) == []
 
 
+def test_ma_cross_skipped_when_level_non_positive(rules):
+    # 49 closes flat at 0.0, then -1.0 (previous), then 1.0 (current):
+    # sma_50 over the trailing 50 closes (49 zeros + -1.0) == -0.02, a
+    # non-positive level for which _distance_pct returns None. previous_close
+    # (-1.0) < ma (-0.02) <= price (1.0) satisfies the cross condition, so
+    # this exercises the branch that used to construct a Trigger straight
+    # from _distance_pct's result. Only 51 bars total, short of the 150/200
+    # MA periods, so sma_50 is the only candidate. As with ma_proximity, a
+    # zero/negative close is reachable fixture data, not contrived.
+    closes = [0.0] * 49 + [-1.0, 1.0]
+    bars = bars_from_closes(closes)
+    triggers = [t for t in evaluate("GOOG", bars, rules, armed=[]) if t.rule == "ma_cross"]
+    assert triggers == []
+
+
 # --- range_break -----------------------------------------------------------
+#
+# range_break's level is `max(prior_highs)` or `min(prior_lows)` -- a prior
+# high or low actually reached by price, not a derived average like an SMA.
+# There is no fixture that makes that non-positive without every high/low in
+# the trailing window also being non-positive, which is not a real market
+# condition this system's data ever produces (Alpaca daily bars are always
+# positive prices). Unlike ma_proximity/ma_cross (an SMA can land at or below
+# zero from ordinary-looking zero/negative closes) and armed_level (caller
+# data with no positivity guarantee at all), there is no honest non-impossible
+# fixture for this rule -- so no skip test is added here; the guard added at
+# engine/triggers.py's range_break call site exists for type coherence with
+# the now-plain-`float` `Trigger.distance_pct`, not a reachable runtime path.
 
 
 def test_range_break_fires_with_volume_confirmation(rules):
