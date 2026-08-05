@@ -5,8 +5,11 @@ Expected orderings are hand-computed from the sort key described in
 docs/IMPLEMENTATION_PLAN.md Task 1.4, never captured from `engine.ranking.rank`
 (the code under test): (1) armed_level before every other rule, (2)
 not-demoted before demoted, (3) watchlist == "core" before anything else,
-(4) distance_pct ascending, (5) volume_ratio descending with None as the
-weakest value, (6) ticker ascending, (7) rule ascending.
+(4) urgency ascending -- 0.0 for breach rules (armed_level, ma_cross,
+range_break, rsi_extreme), distance_pct for ma_proximity, since a price
+percentage and an RSI-point percentage are not the same unit -- (5)
+volume_ratio descending with None as the weakest value, (6) ticker
+ascending, (7) rule ascending.
 
 See docs/SPEC.md Section 6.3 and docs/IMPLEMENTATION_PLAN.md Task 1.4.
 """
@@ -105,10 +108,17 @@ def test_over_budget_already_sent_yields_empty_to_send(three_triggers):
     assert len(dropped) == 3
 
 
-def test_negative_already_sent_yields_empty_to_send(three_triggers):
-    to_send, dropped = rank(three_triggers, already_sent_today=-1, ceiling=3)
-    assert to_send == []
-    assert len(dropped) == 3
+def test_negative_already_sent_raises(three_triggers):
+    # A negative already_sent_today can only arise from a caller bug in the
+    # state layer (Phase 2/4); silently returning an empty to_send would make
+    # that defect indistinguishable from a genuinely quiet market.
+    with pytest.raises(ValueError, match="-1"):
+        rank(three_triggers, already_sent_today=-1, ceiling=3)
+
+
+def test_negative_ceiling_raises(three_triggers):
+    with pytest.raises(ValueError, match="-1"):
+        rank(three_triggers, already_sent_today=0, ceiling=-1)
 
 
 # --- ordering ----------------------------------------------------------------
@@ -125,6 +135,22 @@ def test_demoted_sorts_last_within_group():
     to_send, dropped = rank([demoted_first, not_demoted_second], already_sent_today=0, ceiling=2)
     assert to_send == [not_demoted_second, demoted_first]
     assert dropped == []
+
+
+def test_demoted_armed_level_still_outranks_clean_non_armed():
+    # Ruling (Finding 3): armed_level-vs-not is ranked ahead of demoted-vs-not
+    # in the sort key, so a demoted armed level still beats a clean,
+    # never-demoted ma_proximity trigger. This is deliberate, not a bug: an
+    # armed level was set by the user on purpose, so it stays reported --
+    # carrying its demotion reason -- even when suppressed for the day.
+    demoted_armed = make_suppressed(
+        ticker="Z", rule="armed_level", demoted=True, reason="earnings", distance_pct=9.9
+    )
+    clean_proximity = make_suppressed(
+        ticker="A", rule="ma_proximity", demoted=False, distance_pct=0.01
+    )
+    to_send, _ = rank([demoted_armed, clean_proximity], already_sent_today=0, ceiling=2)
+    assert to_send == [demoted_armed, clean_proximity]
 
 
 def test_core_watchlist_before_screened():
@@ -153,6 +179,31 @@ def test_missing_volume_ratio_never_outranks_a_real_one():
     real = make_suppressed(ticker="B", volume_ratio=0.01)
     to_send, _ = rank([missing, real], already_sent_today=0, ceiling=2)
     assert to_send == [real, missing]
+
+
+def test_rsi_extreme_not_buried_behind_price_triggers():
+    # Finding 1: distance_pct is not commensurable across rule types -- it is
+    # a price percentage for ma_proximity but an RSI-point percentage for
+    # rsi_extreme, where a bar at RSI 95 (against an 80 extreme-overbought
+    # bound) produces distance_pct == 18.75, dwarfing any realistic price
+    # distance. rsi_extreme fires on a breach, so its urgency is 0.0 --
+    # tied with the other breach rule here -- and both must outrank the
+    # proximity rule despite its far smaller distance_pct.
+    rsi_extreme_95 = make_suppressed(
+        ticker="C", rule="rsi_extreme", distance_pct=18.75, volume_ratio=1.0
+    )
+    ma_cross_breach = make_suppressed(
+        ticker="B", rule="ma_cross", distance_pct=0.05, volume_ratio=1.0
+    )
+    ma_proximity_near = make_suppressed(
+        ticker="A", rule="ma_proximity", distance_pct=0.01, volume_ratio=1.0
+    )
+    to_send, _ = rank(
+        [ma_proximity_near, ma_cross_breach, rsi_extreme_95], already_sent_today=0, ceiling=3
+    )
+    # Both breach rules (urgency 0.0) outrank the proximity rule (urgency
+    # 0.01); between the two breach rules, ticker is the tiebreak.
+    assert to_send == [ma_cross_breach, rsi_extreme_95, ma_proximity_near]
 
 
 def test_final_tiebreak_is_ticker_then_rule():

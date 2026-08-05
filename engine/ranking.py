@@ -22,14 +22,44 @@ from collections.abc import Sequence
 from engine.suppressors import Suppressed
 
 
+def _urgency(trigger) -> float:
+    """Rank-only urgency, distinct from `trigger.distance_pct`.
+
+    `distance_pct` is rule-local and stays in the record for the alert text,
+    but it is not commensurable across rule types: for `ma_proximity` it is a
+    percentage of a *price* (typically 0-2%), while for `rsi_extreme` it is
+    computed over the RSI point scale and can be 25%+. Sorting on it directly
+    would bury every `rsi_extreme` trigger behind price triggers, and make a
+    *more* extreme RSI reading sort *worse* than a marginal one.
+
+    Rules that fire on a breach -- `armed_level`, `ma_cross`, `range_break`,
+    `rsi_extreme` -- get urgency 0.0: the thing already happened, so there is
+    no "how close" left to measure. Only `ma_proximity` fires on proximity
+    rather than a breach, so it alone uses `distance_pct` as urgency: the
+    closer the price sits to the average, the more urgent the watch.
+    """
+    return 0.0 if trigger.rule != "ma_proximity" else trigger.distance_pct
+
+
 def _sort_key(item: Suppressed) -> tuple:
+    """Order key, most significant first.
+
+    `armed_level` before every other rule; not-demoted before demoted -- an
+    armed level was set deliberately by the user, so even demoted it still
+    outranks a clean, never-demoted trigger of a different rule (see
+    test_demoted_armed_level_still_outranks_clean_non_armed); watchlist ==
+    "core" before anything else; then `_urgency` ascending (see its
+    docstring for why this is not `distance_pct`); volume_ratio descending
+    with None as the weakest value; ticker then rule ascending as a final,
+    total tiebreak.
+    """
     trigger = item.trigger
     volume_rank = float("inf") if trigger.volume_ratio is None else -trigger.volume_ratio
     return (
         0 if trigger.rule == "armed_level" else 1,
         1 if item.demoted else 0,
         0 if trigger.watchlist == "core" else 1,
-        trigger.distance_pct,
+        _urgency(trigger),
         volume_rank,
         trigger.ticker,
         trigger.rule,
@@ -43,14 +73,21 @@ def rank(
 
     Order, most significant first: armed_level before every other rule;
     not-demoted before demoted; watchlist == "core" before anything else;
-    distance_pct ascending; volume_ratio descending (None is the weakest
-    value); ticker then rule ascending as a final, total tiebreak.
+    urgency ascending (see `_urgency`); volume_ratio descending (None is the
+    weakest value); ticker then rule ascending as a final, total tiebreak.
 
-    `remaining = max(0, ceiling - already_sent_today)`; a negative or
-    over-budget `already_sent_today` yields an empty `to_send` rather than
-    raising. `to_send` is the first `remaining` items of the sorted list;
-    `dropped` is everything after, still in sorted order.
+    `remaining = max(0, ceiling - already_sent_today)`; an over-budget
+    `already_sent_today` (>= ceiling) yields an empty `to_send`, a legitimate
+    state once enough alerts have already gone out today. A negative
+    `already_sent_today` or a negative `ceiling` cannot arise from a healthy
+    caller -- both are state-layer bugs (Phase 2/4) -- so they raise
+    `ValueError` rather than silently producing an empty digest that looks
+    like a quiet market.
     """
+    if already_sent_today < 0:
+        raise ValueError(f"already_sent_today must be >= 0, got {already_sent_today}")
+    if ceiling < 0:
+        raise ValueError(f"ceiling must be >= 0, got {ceiling}")
     ordered = sorted(suppressed, key=_sort_key)
-    remaining = 0 if already_sent_today < 0 else max(0, ceiling - already_sent_today)
+    remaining = max(0, ceiling - already_sent_today)
     return ordered[:remaining], ordered[remaining:]
