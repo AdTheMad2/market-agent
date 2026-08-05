@@ -57,7 +57,7 @@ observable check produces its stated output — not when its code exists.
 | Phase | Delivers | Observable check |
 |---|---|---|
 | 0 | Repo, secrets, live quota verification | `verify_quotas.py` prints a live row from every provider; `verify_secrets.py` exits 0 and finds no secret in the tree |
-| 1 | Pure engine + tests | `pytest` green; `python -m engine.cli fixtures/bars_goog.json` prints the 150-day MA trigger |
+| 1 | Pure engine + tests | `pytest` green; `python -m engine.cli fixtures/bars_goog_ma150.json` prints the 150-day MA trigger |
 | 2 | Data layer + SQLite state | `market.db` holds 250 daily bars for every core-watchlist name; a second run adds zero rows |
 | 3 | **Post-close digest to Telegram** | A real digest arrives on the user's phone at ~17:15 ET on a trading day |
 | 4 | Intraday armed levels + ceiling | An armed level fires within one poll of being touched; a 4th trigger is dropped and appears in the post-close digest |
@@ -309,12 +309,16 @@ def test_armed_levels_outrank_everything(mixed_triggers):
 - [ ] **Step 1:** Implement `python -m engine.cli <bars.json>` — loads a fixture, runs
       `evaluate` → `apply` → `rank`, prints the result as a table. Reads a file, so it
       lives at the edge of `engine/`; it imports nothing new.
-- [ ] **Step 2:** Run against `tests/fixtures/bars_goog.json`. **This is the Phase 1
-      observable check** — it must print the 150-day MA trigger.
+- [ ] **Step 2:** Run against `tests/fixtures/bars_goog_ma150.json`. **This is the Phase 1
+      observable check** — it must print the 150-day MA trigger. (`bars_goog.json`'s last
+      close sits 11.13% above its 150-day SMA, outside `ma_proximity_pct: 1.0`, so it fires
+      nothing; the `_ma150` fixture is the same real bars truncated to the first session
+      where price sits within the threshold.)
 - [ ] **Step 3:** Commit.
 
 **Phase 1 is done when:** `pytest` is green and the CLI prints a real trigger from the
-committed fixture, with no network access anywhere in the run.
+committed `tests/fixtures/bars_goog_ma150.json` fixture, with no network access anywhere
+in the run.
 
 ---
 
