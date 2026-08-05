@@ -32,6 +32,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts._dotenv import load_env  # noqa: E402
+from scripts._redact import live_secrets, redact  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TIMEOUT = 20
@@ -310,24 +311,35 @@ def main() -> int:
 
     results = [probe() for probe in PROBES]
 
+    # Redaction happens here, at the single point where a Probe becomes output,
+    # rather than at each of the thirteen sites that assign a note. Those sites
+    # hold text from exceptions and response bodies, and a requests exception
+    # carries the full request URL — Telegram puts its token in the path, FRED
+    # and Marketaux put their keys in the query string. Redacting per-probe means
+    # the next probe added leaks by default; redacting here means it cannot.
+    secrets = live_secrets()
+
+    def safe(value: str) -> str:
+        return redact(value, secrets)
+
     for p in results:
         marker = {"OK": "  OK  ", "FAIL": " FAIL ", "SKIP": " SKIP "}[p.outcome]
         print(f"[{marker}] {p.provider}")
         if p.outcome == "SKIP":
-            print(f"           {p.note}\n")
+            print(f"           {safe(p.note)}\n")
             continue
-        print(f"           {p.endpoint}")
+        print(f"           {safe(p.endpoint)}")
         print(f"           HTTP {p.status}")
         if p.sample:
-            print(f"           data: {p.sample}")
+            print(f"           data: {safe(p.sample)}")
         if p.headers:
             print("           rate-limit headers returned:")
             for k, v in sorted(p.headers.items()):
-                print(f"             {k}: {v}")
+                print(f"             {safe(k)}: {safe(v)}")
         else:
             print("           rate-limit headers returned: none")
         if p.note:
-            print(f"           note: {p.note}")
+            print(f"           note: {safe(p.note)}")
         print()
 
     ok = sum(1 for p in results if p.outcome == "OK")

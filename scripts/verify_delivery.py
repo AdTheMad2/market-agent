@@ -32,6 +32,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts._dotenv import load_env  # noqa: E402
+from scripts._redact import redact  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TIMEOUT = 20
@@ -85,7 +86,9 @@ def main() -> int:
             timeout=TIMEOUT,
         )
     except Exception as exc:  # noqa: BLE001 — report, never crash
-        print(f"FAIL -{type(exc).__name__}: {exc}")
+        # A requests exception quotes the request URL, and the token is a path
+        # segment of it. Without redaction a timeout prints a live credential.
+        print(f"FAIL - {redact(f'{type(exc).__name__}: {exc}')}")
         return 1
 
     body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
@@ -102,7 +105,7 @@ def main() -> int:
 
     # Telegram puts the real reason in `description`; the status code alone is
     # rarely enough to tell a bad chat id from a blocked bot.
-    print(f"FAIL -HTTP {r.status_code}: {body.get('description', r.text[:200])}")
+    print(f"FAIL - HTTP {r.status_code}: {redact(body.get('description', r.text[:200]))}")
     if body.get("error_code") == 400:
         print("  A 400 here is usually a wrong chat id, or a bot you have not")
         print("  pressed Start on. Message the bot, then re-read getUpdates.")
