@@ -336,14 +336,14 @@ in the run.
   - Both request `feed=sip` with `end` set to **`now - 16 minutes`**. The extra minute is
     slack against clock skew; a 15-minute-exact `end` intermittently 403s.
 
-- [ ] **Step 1:** Write tests against a recorded HTTP fixture, not the live API — the live
+- [x] **Step 1:** Write tests against a recorded HTTP fixture, not the live API — the live
       probe belongs in `scripts/verify_quotas.py`. Assert the request URL carries
       `feed=sip` and an `end` at least 15 minutes in the past.
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement, batching symbols into the multi-symbol endpoint and following
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement, batching symbols into the multi-symbol endpoint and following
       `next_page_token` until exhausted.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 ### Task 2.2: SQLite state
 
@@ -356,7 +356,7 @@ in the run.
   `sent_alerts(id, ticker, rule, level, bar_ts, sent_at)`.
   Functions `upsert_bars`, `armed_for(ticker)`, `record_sent`, `sent_count_today()`.
 
-- [ ] **Step 1:** Write the failing test — **idempotency is the property that matters**:
+- [x] **Step 1:** Write the failing test — **idempotency is the property that matters**:
 
 ```python
 def test_upsert_bars_is_idempotent(tmp_db):
@@ -365,35 +365,35 @@ def test_upsert_bars_is_idempotent(tmp_db):
     assert row_count(tmp_db, "bars") == 10
 ```
 
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement with `INSERT ... ON CONFLICT DO UPDATE`. GitHub cron can
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement with `INSERT ... ON CONFLICT DO UPDATE`. GitHub cron can
       double-fire; a non-idempotent write corrupts the history silently.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 ### Task 2.3: News, earnings, events
 
 **Files:**
 - Create: `sources/finnhub.py`, `sources/marketaux.py`, `sources/edgar.py`, `sources/fred.py`
 
-- [ ] **Step 1:** Implement `company_news(tickers, since)` (Finnhub), `earnings_calendar(days)`
+- [x] **Step 1:** Implement `company_news(tickers, since)` (Finnhub), `earnings_calendar(days)`
       (Finnhub), `ticker_news(tickers)` (Marketaux, fallback), `recent_filings(tickers)`
       (EDGAR, with a descriptive User-Agent as fair use requires), `macro_calendar(days)` (FRED).
-- [ ] **Step 2:** Enforce in code that news functions raise if called from an intraday
+- [x] **Step 2:** Enforce in code that news functions raise if called from an intraday
       context. **SPEC.md §4.2: intraday fetches bars only.** A guard is cheaper than a
       rediscovered quota burn.
-- [ ] **Step 3:** Commit.
+- [x] **Step 3:** Commit.
 
 ### Task 2.4: Backfill script
 
 **Files:**
 - Create: `scripts/backfill.py`
 
-- [ ] **Step 1:** Implement: read `config/watchlist_core.yml`, fetch 250 daily bars for
+- [x] **Step 1:** Implement: read `config/watchlist_core.yml`, fetch 250 daily bars for
       every name, upsert into `data/market.db`.
-- [ ] **Step 2:** Run it. **Phase 2 observable check:** every core name has 250 bars, and
+- [x] **Step 2:** Run it. **Phase 2 observable check:** every core name has 250 bars, and
       an immediate second run adds zero rows.
-- [ ] **Step 3:** Commit, including `data/market.db`.
+- [x] **Step 3:** Commit, including `data/market.db`.
 
 **Phase 2 is done when:** the backfill is idempotent against a live provider and the
 database is committed.
