@@ -637,16 +637,16 @@ than an unapplied one. ✅ = done by the implementing agent; ⬜ = requires the 
 | Surface | Action | Confirms it is live | Who |
 |---|---|---|---|
 | GitHub repo | Create **public** repo, push | Repo visible; Actions tab present | ⬜ |
-| Alpaca | Create data-only account, generate keys | `verify_quotas.py` returns bars | ⬜ |
-| Finnhub / Marketaux / FRED | Register, obtain keys | `verify_quotas.py` returns 200 for each | ⬜ |
-| Gemini | Obtain AI Studio key | `verify_quotas.py` returns a completion | ⬜ |
-| Telegram | Create bot via BotFather, obtain chat ID | `getMe` returns the bot; test message arrives | ⬜ |
+| Alpaca | Create data-only account, generate keys | `verify_quotas.py` returns bars | ✅ 2026-08-05 |
+| Finnhub / Marketaux / FRED | Register, obtain keys | `verify_quotas.py` returns 200 for each | ✅ 2026-08-05 |
+| Gemini | Obtain AI Studio key | `verify_quotas.py` returns a completion | ✅ 2026-08-05 |
+| Telegram | Create bot via BotFather, obtain chat ID | `getMe` returns the bot; test message arrives | 🔶 `getMe` OK; **no test message sent yet** |
 | Actions secrets | Add all 8 names from `.env.example` | A `workflow_dispatch` run succeeds | ⬜ |
 | Actions permissions | Set workflow `contents: write` | A scheduled run commits `data/` | ✅ |
 | Workflows | Confirm all four are enabled after first push | Actions tab lists four scheduled workflows | ✅ |
 | Vercel | Import the repo, Hobby plan, set build output | Live URL renders the dashboard | ⬜ |
 | Vercel | Confirm deploy-on-push from the Actions bot | A scan commit produces a new deployment | ⬜ |
-| Local | `venv` created, `.env` populated and gitignored | `verify_secrets.py` exits 0 | ⬜ |
+| Local | `venv` created, `.env` populated and gitignored | `verify_secrets.py` exits 0 | ✅ 2026-08-05 |
 
 ---
 

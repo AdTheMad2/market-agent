@@ -262,3 +262,51 @@ where nothing is skipped.
 empty leak report across 25 tracked files. Its leak detector was confirmed working
 end-to-end against a planted fake value: exit 2, correct file named, value absent from the
 report.
+
+### 2026-08-05 12:37 UTC — first live run, all keys present. **Phase 0 gate passed.**
+
+`scripts/verify_secrets.py` exits 0: all nine required names set, `TELEGRAM_TEST_CHAT_ID`
+unset and falling back, no secret value found in any of 33 tracked files.
+
+`scripts/verify_quotas.py` exits 0 — **7 OK, 0 failed, 0 skipped.**
+
+```
+[  OK  ] Alpaca (bars, SIP)   HTTP 200  AAPL 2026-08-04T04:00:00Z close=309.38
+                              X-Ratelimit-Limit: 200, Remaining: 199
+[  OK  ] Finnhub (news)       HTTP 200  249 articles for AAPL
+                              X-Ratelimit-Limit: 60, Remaining: 59
+[  OK  ] Marketaux (news)     HTTP 200  meta.found=126259
+                              x-ratelimit-limit: 30, Remaining: 29
+[  OK  ] Gemini (prose)       HTTP 200  gemini-3.6-flash replied 'ok'; tokens=89
+                              no rate-limit headers
+[  OK  ] FRED (macro)         HTTP 200  DFF: Federal Funds Effective Rate
+[  OK  ] SEC EDGAR (filings)  HTTP 200  Apple Inc.: latest 10-Q on 2026-07-31
+[  OK  ] Telegram (delivery)  HTTP 200  getMe authenticated
+```
+
+**Verified, not assumed:** free-tier SIP bars are genuinely available to a data-only
+Alpaca account — the §4 assumption that free real-time is IEX-only but free *delayed* data
+is full SIP holds. Finnhub advertises 60/min and returns exactly that header. Marketaux
+returns 30 as its rate-limit header, distinct from the documented 100/day request cap;
+these measure different windows and both need respecting.
+
+**Two spec-level findings, both from this run:**
+
+1. **`gemini-2.5-flash` is dead for new keys.** It returns HTTP 404 — "no longer available
+   to new users" — while *still being listed by* `ListModels`. The model listing is not a
+   reliable statement of what a given key may call; only a live `generateContent` is.
+   Switched to `gemini-3.6-flash`. `gemini-3.5-flash` returned 503 (high demand) and
+   `gemini-2.0-flash` returned 429 (quota) on the same key at the same moment, so the
+   choice of model is also a choice of availability, not only of quality.
+2. **Gemini 3.x bills thinking tokens against `maxOutputTokens`.** A 256-token budget
+   yielded 74 thought tokens and 1 output token; the original 16-token budget returned
+   HTTP 200 with an empty candidate and no text at all. Any future prose call must budget
+   for thinking or it will fail silently as a success. `render/gemini.py` must treat an
+   empty candidate as a failure and fall back to the deterministic template (Phase 5).
+
+Neither was a provider or quota problem — both were probe bugs that a "does it 200?" check
+would have passed. Recorded because the same two mistakes are latent in Phase 5.
+
+Also fixed: the Alpaca probe sent no `start`, and Alpaca answers HTTP 200 with an empty
+`bars` list rather than defaulting to a window. `limit` was removed too — it truncates from
+the *start* of the range, so the probe was checking the oldest bar while claiming freshness.

@@ -449,3 +449,18 @@ Free specifications and idle-reclaim policy; Alpha Vantage 25/day.
 - GitHub's 60-day inactivity auto-disable of scheduled workflows on public repositories is
   averted by the daily commits the workflows themselves make. **To be confirmed
   empirically**, not assumed — see RISKS.md R-4.
+
+**Verified by live API call on 2026-08-05 — Phase 0 gate, 7/7 OK:** every provider above
+answered HTTP 200 with real data under the keys this project actually holds. Two items
+moved from "verified against current sources" to *wrong*, and both were caught only by the
+live call:
+
+- **Gemini's model is now `gemini-3.6-flash`, not `gemini-2.5-flash`.** The latter returns
+  404 for keys created recently while remaining visible in `ListModels`. Vendor listings
+  describe the catalogue, not a key's entitlement.
+- **Gemini 3.x charges thinking tokens to `maxOutputTokens`**, so an undersized budget
+  returns a successful-looking response containing no text. §5.3's prose renderer must
+  treat an empty candidate as a failure and fall through to the deterministic template.
+
+Free-tier SIP daily bars are confirmed available to a data-only Alpaca account, which was
+the load-bearing assumption of §4. Full log in RISKS.md §4.

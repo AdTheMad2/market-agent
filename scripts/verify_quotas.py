@@ -74,6 +74,16 @@ def sip_end() -> str:
     return (datetime.now(UTC) - timedelta(minutes=16)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def sip_start() -> str:
+    """A `start` far enough back to span a holiday weekend.
+
+    Without an explicit `start` Alpaca returns an empty `bars` list rather than
+    defaulting to a sensible window — verified 2026-08-05, HTTP 200 with zero
+    bars. Ten days covers any run of market closures.
+    """
+    return (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def probe_alpaca() -> Probe:
     key, secret = os.environ.get("ALPACA_API_KEY_ID"), os.environ.get("ALPACA_API_SECRET_KEY")
     if not (key and secret):
@@ -83,10 +93,13 @@ def probe_alpaca() -> Probe:
     params = {
         "symbols": "AAPL,MSFT",
         "timeframe": "1Day",
-        "limit": 5,
         "feed": "sip",
+        "start": sip_start(),
         "end": sip_end(),
     }
+    # No `limit`: Alpaca truncates from the start of the window, so a limit would
+    # return the oldest bars in the range and the freshness check below would be
+    # meaningless.
     p = Probe(provider="Alpaca (bars, SIP)", endpoint=url)
     try:
         r = requests.get(
@@ -167,7 +180,10 @@ def probe_gemini() -> Probe:
     if not key:
         return skip("Gemini (prose)", "GEMINI_API_KEY")
 
-    model = "gemini-2.5-flash"
+    # gemini-2.5-flash 404s for keys created after ~mid-2026 ("no longer available
+    # to new users") while still appearing in ListModels — the listing is not a
+    # reliable statement of what a given key may call. Verified 2026-08-05.
+    model = "gemini-3.6-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     p = Probe(provider="Gemini (prose)", endpoint=url)
     try:
@@ -176,15 +192,23 @@ def probe_gemini() -> Probe:
             headers={"x-goog-api-key": key, "Content-Type": "application/json"},
             json={
                 "contents": [{"parts": [{"text": "Reply with the single word: ok"}]}],
-                "generationConfig": {"maxOutputTokens": 16},
+                # Gemini 3.x reasons before answering and thinking tokens are billed
+                # against maxOutputTokens. A 16-token budget returns HTTP 200 with an
+                # empty candidate — 74 thought tokens and no text. Verified 2026-08-05.
+                "generationConfig": {"maxOutputTokens": 256},
             },
             timeout=TIMEOUT,
         )
         p.status, p.headers = r.status_code, rate_limit_headers(r)
         if r.ok:
             body = r.json()
-            text = body["candidates"][0]["content"]["parts"][0]["text"].strip()
+            # Thought parts precede the answer part; the reply is always last.
+            parts = body["candidates"][0].get("content", {}).get("parts", [])
+            text = parts[-1].get("text", "").strip() if parts else ""
             usage = body.get("usageMetadata", {})
+            if not text:
+                finish = body["candidates"][0].get("finishReason")
+                p.outcome, p.note = "FAIL", f"200 but no text returned (finishReason={finish})"
             p.sample = f"{model} replied {text!r}; tokens={usage.get('totalTokenCount')}"
         else:
             p.outcome, p.note = "FAIL", r.text[:200]
