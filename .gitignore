@@ -1,0 +1,19 @@
+# Secrets. Never commit. See docs/SPEC.md §9.
+.env
+.env.*
+!.env.example
+config/.env
+config/.env.*
+!config/.env.example
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# OS
+Thumbs.db
+desktop.ini

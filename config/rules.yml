@@ -1,0 +1,76 @@
+# Every threshold in the system. No threshold lives in code.
+# See docs/SPEC.md §5.2 and §5.3.
+#
+# These are starting defaults chosen to be defensible, not tuned. They are
+# expected to change once the dropped-alert count from live operation says
+# something (docs/RISKS.md OQ-4). Nothing here is derived from any account.
+
+triggers:
+  # Simple moving averages computed on daily closes.
+  ma_periods: [50, 150, 200]
+
+  # Fire when price is within this percentage of an MA, either side.
+  # 1.0 is roughly "close enough that today could touch it".
+  ma_proximity_pct: 1.0
+
+  # Fire on a close crossing an MA that yesterday's close was on the other side of.
+  ma_cross_enabled: true
+
+  # Break of the highest high / lowest low of the trailing N sessions.
+  range_break_days: 20
+
+  # Session volume as a multiple of the trailing 20-session average.
+  # Below this, a "break" is treated as drift and does not fire on its own.
+  volume_period: 20
+  volume_multiple: 1.5
+
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  # RSI alone may fire an alert only at these outer bounds. Between the bounds
+  # above and these, RSI is reported as context but never fires by itself.
+  rsi_extreme_overbought: 80
+  rsi_extreme_oversold: 20
+
+suppressors:
+  # A suppressor may only demote or silence. It can never create a trigger.
+  # docs/SPEC.md §5.3.
+  earnings_within_days: 7
+  ex_dividend_within_days: 3
+  macro_event_within_days: 1
+
+alerts:
+  # Hard ceiling. A 4th qualifying trigger is dropped, logged, and reported in
+  # the post-close digest — never sent. docs/SPEC.md §6.3.
+  intraday_ceiling: 3
+
+  # Minimum gap before the same ticker+rule may alert again, so one level being
+  # straddled across several polls does not consume the whole ceiling.
+  same_trigger_cooldown_minutes: 120
+
+watchlist:
+  # Universe quality filter for the weekly screen. Configurable; not a personal
+  # preference. docs/SPEC.md §8.
+  market_cap_floor_usd: 1000000000
+
+  # Cap on the agent-screened list. When full, entries are replaced by strength,
+  # never appended — the list cannot grow into noise.
+  screened_list_max: 40
+
+dashboard:
+  # Caps enforced when the JSON is written, not when it is rendered, so the
+  # dashboard is physically incapable of data-dumping. docs/SPEC.md §10.
+  max_setups: 8
+  max_news: 10
+  max_events: 10
+  max_armed: 20
+
+data:
+  # Trailing daily bars kept per symbol. 250 ≈ one trading year, enough for a
+  # 200-day MA with room to spare.
+  daily_bars_history: 250
+
+  # Free consolidated (SIP) data requires the request window to end at least
+  # 15 minutes in the past. The extra minute is slack against clock skew.
+  # docs/SPEC.md §4.3.
+  sip_delay_minutes: 16

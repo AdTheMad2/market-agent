@@ -1,0 +1,21 @@
+# Hand-edited watchlist. Tickers only.
+#
+# NOTHING ELSE GOES IN THIS FILE. No position sizes, no entry prices, no cost
+# basis, no notes about holdings. This repository is public and anything
+# committed to it must be assumed permanently public. docs/SPEC.md §9.
+#
+# The agent-screened list is generated separately into
+# data/watchlist_screened.json and is never edited by hand.
+
+tickers:
+  - GOOGL
+  - NVDA
+  - AVGO
+
+# Optional manually-armed price levels, mirroring the "alert me if it goes past
+# X" workflow. Removed automatically at the post-close run once triggered.
+# Levels are public market prices and carry no personal information.
+armed_levels: []
+  # - ticker: GOOGL
+  #   level: 350.0
+  #   direction: above   # above | below
