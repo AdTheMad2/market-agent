@@ -165,7 +165,7 @@ indicator produces a plausible-looking alert that nobody questions.
   - `volume_ratio(volumes: list[int], period: int = 20) -> float | None` — latest volume
     divided by the mean of the prior `period` volumes, excluding the latest.
 
-- [ ] **Step 1: Write the failing tests.** Hand-computed expected values, not values
+- [x] **Step 1: Write the failing tests.** Hand-computed expected values, not values
       captured from the implementation — a test that asserts what the code already does
       proves nothing.
 
@@ -185,12 +185,12 @@ def test_volume_ratio_excludes_latest_from_baseline():
     assert volume_ratio([100] * 20 + [250], period=20) == 2.5
 ```
 
-- [ ] **Step 2:** Run `pytest tests/engine/test_indicators.py -v`. Expect FAIL —
+- [x] **Step 2:** Run `pytest tests/engine/test_indicators.py -v`. Expect FAIL —
       `ImportError: cannot import name 'sma'`.
-- [ ] **Step 3:** Implement the three functions. No pandas inside `engine/` — plain
+- [x] **Step 3:** Implement the three functions. No pandas inside `engine/` — plain
       Python keeps the module pure and the failure modes obvious.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit `test: indicators` and `feat: sma, rsi, volume_ratio`.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit `test: indicators` and `feat: sma, rsi, volume_ratio`.
 
 ### Task 1.2: Triggers
 
@@ -207,7 +207,7 @@ def test_volume_ratio_excludes_latest_from_baseline():
   - `rule` is one of the exact strings `"ma_proximity"`, `"ma_cross"`, `"range_break"`,
     `"armed_level"`, `"rsi_extreme"`. Later tasks match on these strings.
 
-- [ ] **Step 1: Write the failing tests**, one per rule plus the negative case for each.
+- [x] **Step 1: Write the failing tests**, one per rule plus the negative case for each.
 
 ```python
 def test_ma_proximity_fires_within_threshold(rules):
@@ -231,10 +231,10 @@ def test_trigger_carries_bar_timestamp_not_now(rules):
     assert t.bar_timestamp == "2026-08-05T14:15:00-04:00"
 ```
 
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement `evaluate`. Every threshold read from `rules`, none inline.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement `evaluate`. Every threshold read from `rules`, none inline.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 ### Task 1.3: Suppressors
 
@@ -247,7 +247,7 @@ def test_trigger_carries_bar_timestamp_not_now(rules):
   `SuppressionContext` carries `earnings_dates: dict[str, date]`,
   `ex_dividend_dates: dict[str, date]`, `macro_events: list[date]`, `today: date`.
 
-- [ ] **Step 1: Write the failing tests.** The critical one is the asymmetry:
+- [x] **Step 1: Write the failing tests.** The critical one is the asymmetry:
 
 ```python
 def test_suppressor_never_creates_a_trigger(context):
@@ -260,11 +260,11 @@ def test_earnings_within_window_demotes_but_does_not_remove(context_with_earning
     assert result[0].trigger == goog_trigger  # still present, still visible
 ```
 
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement. A suppressor may set `demoted` and `reason`. It has no code
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement. A suppressor may set `demoted` and `reason`. It has no code
       path that appends to the list.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 ### Task 1.4: Ranking and ceiling
 
@@ -277,7 +277,7 @@ def test_earnings_within_window_demotes_but_does_not_remove(context_with_earning
   screened, then by `distance_pct` ascending, then by `volume_ratio` descending. Demoted
   items sort last within their group.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
 
 ```python
 def test_ceiling_is_absolute(five_triggers):
@@ -295,26 +295,26 @@ def test_armed_levels_outrank_everything(mixed_triggers):
     assert to_send[0].trigger.rule == "armed_level"
 ```
 
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement. Dropped items are returned, never discarded — Phase 3's
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement. Dropped items are returned, never discarded — Phase 3's
       digest reports them.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 ### Task 1.5: Engine CLI
 
 **Files:**
 - Create: `engine/cli.py`
 
-- [ ] **Step 1:** Implement `python -m engine.cli <bars.json>` — loads a fixture, runs
+- [x] **Step 1:** Implement `python -m engine.cli <bars.json>` — loads a fixture, runs
       `evaluate` → `apply` → `rank`, prints the result as a table. Reads a file, so it
       lives at the edge of `engine/`; it imports nothing new.
-- [ ] **Step 2:** Run against `tests/fixtures/bars_goog_ma150.json`. **This is the Phase 1
+- [x] **Step 2:** Run against `tests/fixtures/bars_goog_ma150.json`. **This is the Phase 1
       observable check** — it must print the 150-day MA trigger. (`bars_goog.json`'s last
       close sits 11.13% above its 150-day SMA, outside `ma_proximity_pct: 1.0`, so it fires
       nothing; the `_ma150` fixture is the same real bars truncated to the first session
       where price sits within the threshold.)
-- [ ] **Step 3:** Commit.
+- [x] **Step 3:** Commit.
 
 **Phase 1 is done when:** `pytest` is green and the CLI prints a real trigger from the
 committed `tests/fixtures/bars_goog_ma150.json` fixture, with no network access anywhere
