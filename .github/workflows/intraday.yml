@@ -1,0 +1,85 @@
+name: intraday poll
+
+# Every 15 minutes across the session. The hour range 14-20 UTC covers
+# 09:30-16:00 ET under both EST and EDT, which means roughly an hour of these
+# polls lands outside the session on any given day — jobs/market_calendar.py
+# turns those into no-ops, because cron cannot express "while the market is
+# open" any more than it can express "except Thanksgiving" (docs/SPEC.md §3.1).
+#
+# Minutes are :00/:15/:30/:45 here rather than the :15/:45 the digests use. A
+# 15-minute interval cannot avoid the top of the hour and stay 15 minutes; the
+# queue delay it buys is tolerable because the underlying data is already
+# 15-minute-delayed SIP and a late poll still sees the same bars.
+on:
+  schedule:
+    - cron: "*/15 14-20 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print any alerts instead of sending them"
+        type: boolean
+        default: false
+      test_chat:
+        description: "Send to TELEGRAM_TEST_CHAT_ID instead of the live chat"
+        type: boolean
+        default: false
+
+# The job commits the alerts it recorded and the levels it disarmed.
+permissions:
+  contents: write
+
+# `cancel-in-progress: false` is the whole point: a delayed run must queue
+# behind the one before it, never overlap it. Two polls running together would
+# each read the same ceiling count and each send against it.
+concurrency:
+  group: intraday
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    # Short on purpose. A poll that has not finished in five minutes has
+    # nothing useful left to say — the next one is already due.
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Poll armed levels
+        env:
+          # Bars only. No news key is passed, so a forgotten `intraday_run()`
+          # wrapper fails loudly here instead of quietly burning the Finnhub
+          # quota (docs/SPEC.md §4.2).
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TEST_CHAT_ID: ${{ secrets.TELEGRAM_TEST_CHAT_ID }}
+        run: |
+          python -m jobs.intraday \
+            ${{ inputs.dry_run && '--dry-run' || '' }} \
+            ${{ inputs.test_chat && '--test-chat' || '' }}
+
+      - name: Commit state
+        # Only when something actually changed. 26 polls a session, most of them
+        # quiet, would otherwise produce 26 empty commits a day in a repository
+        # whose history is meant to be a readable audit trail.
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet && echo "no state change" && exit 0
+          git commit -m "chore: intraday state $(date -u +%Y-%m-%dT%H:%MZ)"
+          # Rebase: the digests touch the same files, and a poll that raced one
+          # of them must not turn a quiet day into a merge commit.
+          git pull --rebase --autostash
+          git push
