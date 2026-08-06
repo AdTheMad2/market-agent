@@ -44,30 +44,43 @@ CREATE TABLE IF NOT EXISTS armed_levels (
 -- SPEC §6.3 — two digests per day and at most three intraday alerts — which a
 -- single undifferentiated count cannot: digests recorded here would otherwise
 -- consume the intraday ceiling before the session opened.
+--
+-- `level_key` is part of the identity for the same reason it is in
+-- armed_levels, and leaving it out was a real defect: three armed levels on one
+-- ticker touched inside the same 1-minute bar share (ticker, rule, bar_ts), so
+-- two of the three sends recorded nothing. The ceiling then counts one alert
+-- where three went out, and the fourth of the day is delivered rather than
+-- dropped. `''` stands for "no level", because SQL NULLs do not compare equal
+-- and a nullable column inside a UNIQUE constraint dedupes nothing.
 CREATE TABLE IF NOT EXISTS sent_alerts (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker  TEXT NOT NULL,
-    rule    TEXT NOT NULL,
-    kind    TEXT NOT NULL DEFAULT 'intraday',  -- intraday | digest
-    level   REAL,
-    bar_ts  TEXT NOT NULL,      -- the bar the alert fired on, never the run time
-    sent_at TEXT NOT NULL,      -- RFC3339 UTC
-    UNIQUE (ticker, rule, bar_ts)
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker    TEXT NOT NULL,
+    rule      TEXT NOT NULL,
+    kind      TEXT NOT NULL DEFAULT 'intraday',  -- intraday | digest
+    level     REAL,
+    level_key TEXT NOT NULL DEFAULT '',  -- fixed precision, '' when level IS NULL
+    bar_ts    TEXT NOT NULL,      -- the bar the alert fired on, never the run time
+    sent_at   TEXT NOT NULL,      -- RFC3339 UTC
+    UNIQUE (ticker, rule, level_key, bar_ts)
 );
 
 -- Triggers that qualified but lost to the ceiling. The intraday job and the
 -- post-close job are separate cron processes, so an in-process `dropped` list
 -- cannot reach the evening digest that SPEC §6.3 requires it to appear in.
 -- RISKS.md R-5 makes this count the primary instrument for OQ-4.
+-- `level_key` carries the same correction as sent_alerts: without it, the two
+-- levels dropped at the ceiling in the same bar collapse into one row and the
+-- evening digest under-reports what it held back.
 CREATE TABLE IF NOT EXISTS dropped_alerts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker     TEXT NOT NULL,
     rule       TEXT NOT NULL,
     reason     TEXT NOT NULL,
     level      REAL,
+    level_key  TEXT NOT NULL DEFAULT '',  -- fixed precision, '' when level IS NULL
     bar_ts     TEXT NOT NULL,
     dropped_at TEXT NOT NULL,   -- RFC3339 UTC
-    UNIQUE (ticker, rule, bar_ts)
+    UNIQUE (ticker, rule, level_key, bar_ts)
 );
 
 -- No index on bars(ticker, timeframe, ts): the primary key already creates

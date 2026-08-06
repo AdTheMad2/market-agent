@@ -9,10 +9,17 @@ already knew the answer would catch (docs/SPEC.md §3.1).
 a second of import time, and `jobs/watchlist.py` and the renderer are imported by
 tests that have no business paying for it.
 
-Note the scope: this answers *whether* a session exists, not whether it has
-closed. The post-close cron at 21:15 UTC is already past the 16:00 ET close on
-both EST and EDT, and early-close days end earlier still, so no run this system
-schedules can precede its own session close.
+Two questions live here, and they are not the same one. `is_trading_day` asks
+whether a session exists — enough for the two digest runs, since the post-close
+cron at 21:15 UTC is already past the 16:00 ET close on both EST and EDT and
+early-close days end earlier still. `is_market_open` asks whether a session is
+*in progress right now*, which only the intraday poll needs: its cron spans
+14:00-20:59 UTC to cover both EST and EDT, so on any given day roughly an hour
+of those polls falls outside the session and must do nothing.
+
+`is_market_open` reads the calendar's own open and close times rather than
+hardcoding 09:30-16:00, so the half-days around Thanksgiving and Christmas close
+the poll at 13:00 ET without anyone maintaining a list of them.
 """
 
 from __future__ import annotations
@@ -51,6 +58,38 @@ def is_trading_day(day: date | None = None) -> bool:
     """
     target = day or datetime.now(UTC).date()
     return target in _sessions(target, target)
+
+
+@lru_cache(maxsize=32)
+def session_bounds(day: date) -> tuple[datetime, datetime] | None:
+    """`(open, close)` in UTC for `day`, or `None` when there is no session.
+
+    Read from the calendar rather than hardcoded, so an early close — the
+    half-days around Thanksgiving and Christmas — ends the poll at 13:00 ET
+    without anyone maintaining a list of them.
+    """
+    schedule = _calendar().schedule(start_date=day.isoformat(), end_date=day.isoformat())
+    if schedule.empty:
+        return None
+    row = schedule.iloc[0]
+    return row["market_open"].to_pydatetime(), row["market_close"].to_pydatetime()
+
+
+def is_market_open(moment: datetime | None = None) -> bool:
+    """True when `moment` (default: now, UTC) falls inside a live session.
+
+    The intraday cron spans 14:00-20:59 UTC to cover the session under both EST
+    and EDT, so about an hour of its polls land outside the session every day
+    and have to be no-ops rather than fetches.
+    """
+    now = moment or datetime.now(UTC)
+    if now.tzinfo is None:
+        raise ValueError("moment must be timezone-aware; a naive datetime is unanswerable here")
+    bounds = session_bounds(now.astimezone(UTC).date())
+    if bounds is None:
+        return False
+    opened, closed = bounds
+    return opened <= now < closed
 
 
 def previous_trading_day(day: date | None = None) -> date:

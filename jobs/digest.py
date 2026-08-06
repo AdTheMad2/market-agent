@@ -24,8 +24,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-import yaml
-
+import sources
 from delivery import telegram
 from engine import ranking, suppressors
 from engine.suppressors import SuppressionContext, SuppressorRules
@@ -33,9 +32,6 @@ from engine.triggers import Rules, evaluate
 from jobs import market_calendar, watchlist
 from render import template
 from sources import Earnings, MacroEvent, NewsItem, alpaca, edgar, finnhub, fred, store
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-RULES_PATH = REPO_ROOT / "config" / "rules.yml"
 
 PREMARKET = "premarket"
 POSTCLOSE = "postclose"
@@ -64,10 +60,6 @@ class DigestOutcome:
     delivered: bool = False
     text: str = ""
     errors: list[str] = field(default_factory=list)
-
-
-def _rules_document() -> dict:
-    return yaml.safe_load(RULES_PATH.read_text(encoding="utf-8"))
 
 
 def _context(
@@ -206,7 +198,7 @@ def run(
         print(f"{day.isoformat()} is not an NYSE session; nothing to do")
         return DigestOutcome(ran=False, day=day, kind=kind)
 
-    document = _rules_document()
+    document = sources.rules_config()
     rules = Rules.from_mapping(document)
     history = int(document["data"]["daily_bars_history"])
     tickers = watchlist.core_tickers()

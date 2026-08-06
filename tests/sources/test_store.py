@@ -355,3 +355,120 @@ def test_record_dropped_is_idempotent_per_ticker_rule_and_bar(tmp_db):
         )
 
     assert row_count(tmp_db, "dropped_alerts") == 1
+
+
+# --------------------------------------------------------------------------
+# level_key in the alert keys — found by the Phase 4 intraday job
+# --------------------------------------------------------------------------
+
+
+def test_three_levels_on_one_ticker_in_one_bar_record_three_rows(tmp_db):
+    """The defect the intraday ceiling depends on not having.
+
+    The original constraint was (ticker, rule, bar_ts). Three armed levels
+    touched inside the same 1-minute bar share all three, so two of the three
+    sends recorded nothing — and a ceiling counting one alert where three went
+    out delivers a fourth instead of dropping it.
+    """
+    for level in (349.5, 350.0, 350.5):
+        store.record_sent(
+            tmp_db, "GOOGL", "armed_level", level=level,
+            bar_ts="2026-08-05T15:00:00Z", sent_at="2026-08-05T15:01:00Z",
+        )
+    assert row_count(tmp_db, "sent_alerts") == 3
+    assert store.sent_count_today(tmp_db, date(2026, 8, 5)) == 3
+
+
+def test_the_same_level_in_the_same_bar_still_records_once(tmp_db):
+    # The idempotency the constraint existed for in the first place: a retry
+    # after a partial failure must not consume a second ceiling slot.
+    for _ in range(3):
+        store.record_sent(
+            tmp_db, "GOOGL", "armed_level", level=350.0,
+            bar_ts="2026-08-05T15:00:00Z", sent_at="2026-08-05T15:01:00Z",
+        )
+    assert row_count(tmp_db, "sent_alerts") == 1
+
+
+def test_two_levels_dropped_in_one_bar_are_both_reported(tmp_db):
+    for level in (350.3, 350.5):
+        store.record_dropped(
+            tmp_db, "GOOGL", "armed_level", reason="daily ceiling of 3 reached",
+            bar_ts="2026-08-05T15:00:00Z", level=level,
+            dropped_at="2026-08-05T15:01:00Z",
+        )
+    assert len(store.dropped_on(tmp_db, date(2026, 8, 5))) == 2
+
+
+def test_digests_still_dedupe_without_a_level(tmp_db):
+    # level is NULL for a digest, and SQL NULLs never compare equal — which is
+    # why the key stores '' rather than leaving the column nullable inside it.
+    for _ in range(2):
+        store.record_sent(
+            tmp_db, "_digest", "postclose", level=None,
+            bar_ts="2026-08-05T00:00:00Z", sent_at="2026-08-05T21:16:00Z",
+            kind=store.KIND_DIGEST,
+        )
+    assert row_count(tmp_db, "sent_alerts") == 1
+
+
+def test_last_sent_narrows_to_one_level(tmp_db):
+    store.record_sent(
+        tmp_db, "GOOGL", "armed_level", level=350.0,
+        bar_ts="2026-08-05T15:00:00Z", sent_at="2026-08-05T15:01:00Z",
+    )
+    assert store.last_sent(tmp_db, "GOOGL", "armed_level", level=350.0) is not None
+    # A different armed level on the same ticker has not alerted, and must not
+    # inherit the first one's cooldown.
+    assert store.last_sent(tmp_db, "GOOGL", "armed_level", level=349.5) is None
+
+
+def test_init_db_migrates_a_database_written_before_level_key(tmp_path):
+    """The database is committed to the repository, so the one that matters
+    already exists. A schema-only fix would leave it on the old definition."""
+    path = tmp_path / "legacy.db"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE sent_alerts (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker  TEXT NOT NULL,
+                rule    TEXT NOT NULL,
+                kind    TEXT NOT NULL DEFAULT 'intraday',
+                level   REAL,
+                bar_ts  TEXT NOT NULL,
+                sent_at TEXT NOT NULL,
+                UNIQUE (ticker, rule, bar_ts)
+            );
+            CREATE INDEX idx_sent_alerts_sent_at ON sent_alerts (sent_at);
+            INSERT INTO sent_alerts (ticker, rule, kind, level, bar_ts, sent_at)
+            VALUES ('GOOGL', 'armed_level', 'intraday', 350.0,
+                    '2026-08-05T15:00:00Z', '2026-08-05T15:01:00Z');
+            """
+        )
+
+    store.init_db(path)
+
+    with sqlite3.connect(path) as conn:
+        columns = [r[1] for r in conn.execute("PRAGMA table_info(sent_alerts)")]
+        rows = conn.execute("SELECT ticker, level, level_key FROM sent_alerts").fetchall()
+
+    assert "level_key" in columns
+    # The existing row survives and gets a key derived from its own level.
+    assert rows == [("GOOGL", 350.0, "350.0000")]
+    # And the constraint it was migrated for now holds.
+    store.record_sent(
+        path, "GOOGL", "armed_level", level=349.5,
+        bar_ts="2026-08-05T15:00:00Z", sent_at="2026-08-05T15:01:00Z",
+    )
+    assert row_count(path, "sent_alerts") == 2
+
+
+def test_init_db_migration_is_idempotent(tmp_db):
+    store.record_sent(
+        tmp_db, "GOOGL", "armed_level", level=350.0,
+        bar_ts="2026-08-05T15:00:00Z", sent_at="2026-08-05T15:01:00Z",
+    )
+    store.init_db(tmp_db)
+    store.init_db(tmp_db)
+    assert row_count(tmp_db, "sent_alerts") == 1

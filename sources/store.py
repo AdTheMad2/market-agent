@@ -94,12 +94,70 @@ def _level_key(level: float) -> str:
     return f"{float(level):.{LEVEL_PRECISION}f}"
 
 
+def _optional_level_key(level) -> str:
+    """`_level_key`, but `''` for a missing level.
+
+    SQL NULLs never compare equal, so a nullable column inside a UNIQUE
+    constraint dedupes nothing. `''` is a value and does.
+    """
+    return "" if level is None else _level_key(level)
+
+
+def _add_level_key(conn: sqlite3.Connection) -> list[str]:
+    """Rebuild `sent_alerts` and `dropped_alerts` with `level_key` in their key.
+
+    The original constraint was `(ticker, rule, bar_ts)` with `level` outside it.
+    Three armed levels on one ticker touched inside the same 1-minute bar share
+    all three columns, so two of the three writes silently did nothing — and a
+    ceiling that counts one alert where three went out delivers a fourth instead
+    of dropping it.
+
+    SQLite cannot alter a UNIQUE constraint, so the table is rebuilt. The
+    database is committed to the repository and already carries rows, so this
+    runs as a migration rather than shipping only in the schema for fresh
+    databases — the one that matters is the one in git.
+    """
+    migrated: list[str] = []
+    for table, index in (
+        ("sent_alerts", "idx_sent_alerts_sent_at"),
+        ("dropped_alerts", "idx_dropped_alerts_at"),
+    ):
+        info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        if not info or any(row[1] == "level_key" for row in info):
+            continue
+
+        columns = [row[1] for row in info]
+        # The index is dropped first: it stays attached to the renamed table and
+        # would collide with the schema's `CREATE INDEX IF NOT EXISTS` below.
+        conn.execute(f"DROP INDEX IF EXISTS {index}")
+        conn.execute(f"ALTER TABLE {table} RENAME TO {table}_legacy")
+        conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+
+        listed = ", ".join(columns)
+        conn.execute(
+            f"INSERT INTO {table} ({listed}, level_key) "
+            f"SELECT {listed}, "
+            f"CASE WHEN level IS NULL THEN '' "
+            f"ELSE printf('%.{LEVEL_PRECISION}f', level) END "
+            f"FROM {table}_legacy"
+        )
+        conn.execute(f"DROP TABLE {table}_legacy")
+        migrated.append(table)
+    return migrated
+
+
 def init_db(db: str | Path) -> None:
-    """Apply `data/schema.sql`. Safe to run against an existing database —
-    every statement in the schema is `IF NOT EXISTS`, so existing rows survive."""
+    """Apply `data/schema.sql`, then any migration the existing file needs.
+
+    Every statement in the schema is `IF NOT EXISTS`, so existing rows survive —
+    which is also why a changed UNIQUE constraint needs `_add_level_key`: the
+    schema alone would leave an existing table on its old definition forever.
+    """
     Path(db).parent.mkdir(parents=True, exist_ok=True)
     with _session(db) as conn:
         conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        for table in _add_level_key(conn):
+            print(f"migrated {table}: level_key added to its uniqueness key")
 
 
 def upsert_bars(db: str | Path, ticker: str, bars: Iterable[Bar], timeframe: str = DAILY) -> int:
@@ -310,11 +368,19 @@ def record_sent(
     with _session(db) as conn:
         conn.execute(
             """
-            INSERT INTO sent_alerts (ticker, rule, kind, level, bar_ts, sent_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT (ticker, rule, bar_ts) DO NOTHING
+            INSERT INTO sent_alerts (ticker, rule, kind, level, level_key, bar_ts, sent_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (ticker, rule, level_key, bar_ts) DO NOTHING
             """,
-            (ticker, rule, kind, None if level is None else float(level), bar_ts, stamp),
+            (
+                ticker,
+                rule,
+                kind,
+                None if level is None else float(level),
+                _optional_level_key(level),
+                bar_ts,
+                stamp,
+            ),
         )
 
 
@@ -338,15 +404,27 @@ def sent_count_today(db: str | Path, day: date | None = None, kind: str = KIND_I
         ).fetchone()[0]
 
 
-def last_sent(db: str | Path, ticker: str, rule: str) -> str | None:
-    """`sent_at` of the most recent delivery for this ticker+rule, for the
-    same-trigger cooldown (`alerts.same_trigger_cooldown_minutes`)."""
+def last_sent(db: str | Path, ticker: str, rule: str, level: float | None = None) -> str | None:
+    """`sent_at` of the most recent delivery for this trigger, for the
+    same-trigger cooldown (`alerts.same_trigger_cooldown_minutes`).
+
+    `level` narrows the question from "this ticker+rule" to "this exact level".
+    Without it a ticker with three armed levels goes quiet on all three the
+    moment any one of them fires, which is the opposite of what arming three
+    levels means. Matched on the same fixed-precision key the armed levels
+    themselves use, so a recomputed float still matches.
+    """
+    query = "SELECT sent_at FROM sent_alerts WHERE ticker = ? AND rule = ?"
+    params: list = [ticker, rule]
+    if level is not None:
+        # `level_key`, not `level`: comparing a REAL to a float would depend on
+        # both sides having taken the same path through binary floating point.
+        query += " AND level_key = ?"
+        params.append(_level_key(level))
+    query += " ORDER BY sent_at DESC LIMIT 1"
+
     with _session(db) as conn:
-        row = conn.execute(
-            "SELECT sent_at FROM sent_alerts WHERE ticker = ? AND rule = ? "
-            "ORDER BY sent_at DESC LIMIT 1",
-            (ticker, rule),
-        ).fetchone()
+        row = conn.execute(query, params).fetchone()
     return None if row is None else row[0]
 
 
@@ -390,11 +468,20 @@ def record_dropped(
     with _session(db) as conn:
         conn.execute(
             """
-            INSERT INTO dropped_alerts (ticker, rule, reason, level, bar_ts, dropped_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT (ticker, rule, bar_ts) DO NOTHING
+            INSERT INTO dropped_alerts
+                (ticker, rule, reason, level, level_key, bar_ts, dropped_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (ticker, rule, level_key, bar_ts) DO NOTHING
             """,
-            (ticker, rule, reason, None if level is None else float(level), bar_ts, stamp),
+            (
+                ticker,
+                rule,
+                reason,
+                None if level is None else float(level),
+                _optional_level_key(level),
+                bar_ts,
+                stamp,
+            ),
         )
 
 
