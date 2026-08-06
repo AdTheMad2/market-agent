@@ -411,12 +411,12 @@ database is committed.
 - Produces: `send(text: str, dry_run: bool = False) -> bool`. Markdown-escapes ticker
   symbols and numbers so a `.` in a price never breaks the message.
 
-- [ ] **Step 1:** Write the failing test for escaping — `escape_md("GOOG 350.00")` must
+- [x] **Step 1:** Write the failing test for escaping — `escape_md("GOOG 350.00")` must
       not emit unbalanced Markdown.
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement. Token from environment only; **never as an argument**.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement. Token from environment only; **never as an argument**.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 ### Task 3.2: Template renderer
 
@@ -427,23 +427,23 @@ database is committed.
 - Produces: `render_alert(s: Suppressed) -> str` and `render_digest(items, dropped) -> str`,
   both matching the message contract in SPEC.md §6.2 exactly.
 
-- [ ] **Step 1:** Write the failing tests — assert the bar timestamp is present, that the
+- [x] **Step 1:** Write the failing tests — assert the bar timestamp is present, that the
       string `"buy"` is absent (case-insensitive), and that a dropped-item count appears in
       the digest when `dropped` is non-empty.
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement. This renderer is the permanent fallback for Phase 5 — it is
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement. This renderer is the permanent fallback for Phase 5 — it is
       not scaffolding and must not be deleted later.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 ### Task 3.3: The post-close job
 
 **Files:**
 - Create: `jobs/postclose.py`, `.github/workflows/postclose.yml`
 
-- [ ] **Step 1:** Implement the job: market-calendar check → fetch bars → fetch news and
+- [x] **Step 1:** Implement the job: market-calendar check → fetch bars → fetch news and
       earnings → engine → rank → render → send → commit `data/`.
-- [ ] **Step 2:** Write the workflow. `cron: "15 21 * * 1-5"`, plus `workflow_dispatch`,
+- [x] **Step 2:** Write the workflow. `cron: "15 21 * * 1-5"`, plus `workflow_dispatch`,
       plus `permissions: contents: write` so the job can commit its state.
 - [ ] **Step 3:** Trigger it manually via `workflow_dispatch` and confirm a message
       arrives.
@@ -456,7 +456,7 @@ database is committed.
 **Files:**
 - Create: `jobs/premarket.py`, `.github/workflows/premarket.yml`
 
-- [ ] **Step 1:** Implement: same pipeline, plus writing the day's armed levels into
+- [x] **Step 1:** Implement: same pipeline, plus writing the day's armed levels into
       `armed_levels` (`store.arm_level`, `source="job"`).
       **No counter reset exists or should.** `store.sent_count_today` derives the count
       from the UTC date of the rows in `sent_alerts`, so a new day resets it by
@@ -468,7 +468,7 @@ database is committed.
       ceiling, and note that a level disarmed at post-close is re-armed by this job for as
       long as it remains in `config/watchlist_core.yml` — whichever job owns removal owns
       it in the YAML, not in the table.
-- [ ] **Step 2:** `cron: "15 13 * * 1-5"` plus `workflow_dispatch`.
+- [x] **Step 2:** `cron: "15 13 * * 1-5"` plus `workflow_dispatch`.
 - [ ] **Step 3:** Confirm a pre-market digest arrives and `armed_levels` is populated.
 - [ ] **Step 4:** Commit.
 

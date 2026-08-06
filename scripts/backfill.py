@@ -26,29 +26,16 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from jobs.watchlist import WATCHLIST_PATH, core_tickers  # noqa: E402,F401
 from scripts._dotenv import load_env  # noqa: E402
 from sources import alpaca, store  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist_core.yml"
 RULES_PATH = REPO_ROOT / "config" / "rules.yml"
 
-
-def core_tickers(path: Path | None = None) -> list[str]:
-    """The core watchlist, upper-cased and de-duplicated.
-
-    The file is hand-edited; a repeated symbol would otherwise be fetched in two
-    batches and its bars merged twice.
-    """
-    data = yaml.safe_load((path or WATCHLIST_PATH).read_text(encoding="utf-8")) or {}
-    seen: set[str] = set()
-    tickers = []
-    for raw in data.get("tickers") or []:
-        ticker = str(raw).upper()
-        if ticker not in seen:
-            seen.add(ticker)
-            tickers.append(ticker)
-    return tickers
+# `core_tickers` is re-exported from jobs.watchlist rather than defined twice.
+# The jobs read the same file for the same reason, and a second parser here is
+# the one that goes stale the day the file grows a key.
 
 
 def history_length(path: Path | None = None) -> int:
@@ -75,7 +62,9 @@ def main() -> int:
 
     db = Path(args.db)
     days = args.days or history_length()
-    tickers = core_tickers()
+    # Passed explicitly rather than defaulted: the path is this module's to
+    # choose, and the tests point it at a fixture.
+    tickers = core_tickers(WATCHLIST_PATH)
     if not tickers:
         print("config/watchlist_core.yml lists no tickers; nothing to do")
         return 1

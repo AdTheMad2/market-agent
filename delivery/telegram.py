@@ -63,6 +63,19 @@ def escape_md(value) -> str:
     return text
 
 
+def escape_md_url(url: str) -> str:
+    """Escape a URL for the `(...)` half of a MarkdownV2 link.
+
+    The rules differ from `escape_md` and the difference is not cosmetic: inside
+    a link target Telegram requires only `)` and `\\` to be escaped, and treats
+    every other backslash as a literal character. Running a URL through
+    `escape_md` therefore produces a link that resolves to
+    `https://finnhub\\.io/...` and 404s — which looks like a bad feed rather than
+    a rendering bug.
+    """
+    return url.replace("\\", "\\\\").replace(")", "\\)")
+
+
 def _credentials(to_test_chat: bool) -> tuple[str, str]:
     """`(token, chat_id)` from the environment, or `("", "")` if incomplete.
 

@@ -1,0 +1,74 @@
+name: post-close digest
+
+# ~17:15 ET: past the 16:00 close, past the 15-minute SIP delay, and off the
+# top of the hour because GitHub's scheduled queue backs up there
+# (docs/SPEC.md §3.1). Monday-Friday only; holidays are handled in code by
+# jobs/market_calendar.py, because cron cannot express "except Thanksgiving".
+on:
+  schedule:
+    - cron: "15 21 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print the digest instead of sending it"
+        type: boolean
+        default: false
+
+# The job commits the bars it fetched and the alerts it recorded.
+permissions:
+  contents: write
+
+# A delayed run must never overlap the next and send the digest twice.
+concurrency:
+  group: postclose
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Run the post-close digest
+        env:
+          # Secrets are passed as environment variables and never as arguments:
+          # a command line ends up in the run log verbatim (docs/SPEC.md §9).
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          MARKETAUX_API_KEY: ${{ secrets.MARKETAUX_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Not a credential, but SEC fair use requires it and sources/edgar.py
+          # raises without it. Kept as a secret so the contact address in it
+          # stays out of a public repository (docs/SPEC.md §9).
+          EDGAR_USER_AGENT: ${{ secrets.EDGAR_USER_AGENT }}
+        run: |
+          python -m jobs.postclose ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Commit state
+        # `always()`: the state is worth keeping even when delivery failed, and
+        # a run that fetched bars and then threw them away has to be repeated
+        # against the same quota tomorrow.
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet && echo "no state change" && exit 0
+          git commit -m "chore: post-close state $(date -u +%Y-%m-%d)"
+          # Rebase rather than merge: the pre-market run touches the same files
+          # and a merge commit per weekday would bury the actual diffs.
+          git pull --rebase --autostash
+          git push

@@ -350,6 +350,25 @@ def last_sent(db: str | Path, ticker: str, rule: str) -> str | None:
     return None if row is None else row[0]
 
 
+def armed_levels_sent_on(db: str | Path, day: date | None = None) -> list[tuple[str, float]]:
+    """`(ticker, level)` for every armed level that alerted on `day` (UTC).
+
+    The post-close job disarms what fired during the session, and the intraday
+    job that sent those alerts is a separate cron process whose in-process list
+    is long gone by 17:15. This table is the only record that crosses that
+    boundary.
+    """
+    target = (day or datetime.now(UTC).date()).isoformat()
+    with _session(db) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT ticker, level FROM sent_alerts "
+            "WHERE rule = 'armed_level' AND level IS NOT NULL "
+            "AND substr(sent_at, 1, 10) = ?",
+            (target,),
+        ).fetchall()
+    return [(r[0], float(r[1])) for r in rows]
+
+
 def record_dropped(
     db: str | Path,
     ticker: str,

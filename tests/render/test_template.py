@@ -18,7 +18,7 @@ import pytest
 from engine.suppressors import Suppressed
 from engine.triggers import Trigger
 from render import template
-from sources import NewsItem
+from sources import MacroEvent, NewsItem
 
 
 def make_trigger(**overrides) -> Trigger:
@@ -200,3 +200,81 @@ def test_digest_titles_itself_by_kind():
 def test_digest_is_escaped_end_to_end():
     text = template.render_digest([make_suppressed()], dropped=[], day=date(2026, 8, 5))
     assert "2026\\-08\\-05" in text
+
+
+# --------------------------------------------------------------------------
+# Section shaping — defects found by the first live dry run, 2026-08-06
+# --------------------------------------------------------------------------
+
+
+def news_item(ticker: str, headline: str, published_at: str, url: str) -> NewsItem:
+    return NewsItem(
+        ticker=ticker,
+        headline=headline,
+        source="Reuters",
+        url=url,
+        published_at=published_at,
+    )
+
+
+def test_headline_links_stay_resolvable():
+    text = template.render_digest(
+        [],
+        dropped=[],
+        day=date(2026, 8, 5),
+        news=[news_item("GOOGL", "A thing happened", "2026-08-05T12:00:00Z",
+                        "https://finnhub.io/api/news?id=abc.def")],
+    )
+    assert "(https://finnhub.io/api/news?id=abc.def)" in text
+
+
+def test_headlines_carry_their_ticker():
+    text = template.render_digest(
+        [],
+        dropped=[],
+        day=date(2026, 8, 5),
+        news=[news_item("NVDA", "A thing happened", "2026-08-05T12:00:00Z", "https://x.test/a")],
+    )
+    assert "$NVDA" in text
+
+
+def test_the_news_cap_keeps_the_freshest_not_the_first_ticker_listed():
+    news = [
+        news_item("GOOGL", f"Old {i}", f"2026-08-05T0{i}:00:00Z", f"https://x.test/g{i}")
+        for i in range(1, 9)
+    ] + [news_item("NVDA", "Fresh", "2026-08-05T23:00:00Z", "https://x.test/n")]
+
+    text = template.render_digest([], dropped=[], day=date(2026, 8, 5), news=news)
+    assert "Fresh" in text
+
+
+def test_a_repeating_macro_release_appears_once_at_its_next_date():
+    # FRED publishes an FOMC row for most days in a window. Unfiltered, one
+    # release fills the section and pushes CPI out of the cap entirely.
+    macro = [MacroEvent(date=f"2026-08-0{d}", name="FOMC Press Release") for d in range(6, 10)]
+    macro.append(MacroEvent(date="2026-08-12", name="Consumer Price Index"))
+
+    text = plain(template.render_digest([], dropped=[], day=date(2026, 8, 5), macro=macro))
+    assert text.count("FOMC Press Release") == 1
+    assert "2026-08-06 FOMC Press Release" in text
+    assert "Consumer Price Index" in text
+
+
+def test_a_headline_using_an_inflected_form_is_also_withheld():
+    # "Thinking of Buying Tesla Stock on the Dip?" reached a live dry run on
+    # 2026-08-06 past a \b(buy|sell)\b pattern. The constraint is that the word
+    # "buy" appears in no output, and this headline carries it.
+    text = template.render_digest(
+        [],
+        dropped=[],
+        day=date(2026, 8, 5),
+        news=[
+            news_item("NVDA", "Thinking of Buying Tesla Stock on the Dip?",
+                      "2026-08-05T12:00:00Z", "https://x.test/a"),
+            news_item("NVDA", "Selling pressure waits in the wings",
+                      "2026-08-05T11:00:00Z", "https://x.test/b"),
+        ],
+    )
+    assert "buy" not in text.lower()
+    assert "sell" not in text.lower()
+    assert "2 headline" in plain(text)

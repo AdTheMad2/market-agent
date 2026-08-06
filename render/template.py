@@ -28,7 +28,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from delivery.telegram import escape_md
+from delivery.telegram import escape_md, escape_md_url
 from engine.suppressors import Suppressed
 from sources import Earnings, MacroEvent, NewsItem
 
@@ -44,9 +44,14 @@ RULE_PHRASES = {
     "rsi_extreme": "RSI {detail}",
 }
 
-# Standalone recommendation words. Substring matching would flag "buyer" and
-# "sell-off" in ordinary prose, so the boundary is part of the pattern.
-RECOMMENDATION_RE = re.compile(r"\b(buy|sell)\b", re.IGNORECASE)
+# Recommendation words and anything built on them. The leading word boundary
+# keeps "rebuy" and "oversell" out of it, but the trailing `\w*` is deliberate:
+# the constraint is that the word "buy" appears in no output, and "Thinking of
+# Buying Tesla Stock" carries it as plainly as "upgraded to Buy" does. A live
+# dry run on 2026-08-06 surfaced exactly that headline against a `\b...\b`
+# pattern. The cost is that "buyback" is withheld too; that is the right side to
+# err on for a system that must never read as advice.
+RECOMMENDATION_RE = re.compile(r"\b(buy|sell)\w*", re.IGNORECASE)
 
 # Digest section caps. A digest that scrolls is a digest nobody reads.
 MAX_NEWS_LINES = 8
@@ -134,6 +139,29 @@ def _usable_news(news: Sequence[NewsItem]) -> tuple[list[NewsItem], int]:
     return keep, len(news) - len(keep)
 
 
+def _newest_first(news: Sequence[NewsItem]) -> list[NewsItem]:
+    """Most recently published first, so the cap keeps the freshest headlines.
+
+    In file order the cap keeps whichever ticker the watchlist happens to list
+    first and shows nothing at all for the others.
+    """
+    return sorted(news, key=lambda n: n.published_at, reverse=True)
+
+
+def _next_per_release(macro: Sequence[MacroEvent]) -> list[MacroEvent]:
+    """The soonest date per release name, date-ascending.
+
+    FRED publishes an FOMC row for most days in a window, so the raw calendar
+    fills the whole section with one release and pushes CPI and payrolls out of
+    the cap. The user needs the next occurrence of each, not every occurrence of
+    the noisiest.
+    """
+    soonest: dict[str, MacroEvent] = {}
+    for event in sorted(macro, key=lambda m: m.date):
+        soonest.setdefault(event.name, event)
+    return sorted(soonest.values(), key=lambda m: m.date)
+
+
 def render_digest(
     items: Sequence[Suppressed],
     dropped: Sequence[dict],
@@ -173,8 +201,14 @@ def render_digest(
     usable, withheld = _usable_news(news)
     if usable or withheld:
         lines = [escape_md("Headlines:")]
-        for article in usable[:MAX_NEWS_LINES]:
-            lines.append(f"- [{escape_md(article.headline)}]({escape_md(article.url)})")
+        for article in _newest_first(usable)[:MAX_NEWS_LINES]:
+            # The ticker is carried on the line: the sections above are ordered
+            # by rule strength, so by the time the reader reaches the headlines
+            # there is nothing telling them which name each one belongs to.
+            lines.append(
+                f"- ${escape_md(article.ticker)} "
+                f"[{escape_md(article.headline)}]({escape_md_url(article.url)})"
+            )
         if withheld:
             lines.append(
                 escape_md(
@@ -183,8 +217,10 @@ def render_digest(
             )
         blocks.append("\n".join(lines))
 
-    event_lines = [escape_md(f"- {e.ticker} earnings {e.date} {e.when}".rstrip()) for e in earnings]
-    event_lines += [escape_md(f"- {m.date} {m.name}") for m in macro]
+    event_lines = [
+        escape_md(f"- {e.ticker} earnings {e.date} {e.when}".rstrip()) for e in earnings
+    ]
+    event_lines += [escape_md(f"- {m.date} {m.name}") for m in _next_per_release(macro)]
     if event_lines:
         blocks.append("\n".join([escape_md("Ahead:")] + event_lines[:MAX_EVENT_LINES]))
 

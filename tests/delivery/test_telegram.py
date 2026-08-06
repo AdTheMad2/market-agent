@@ -180,3 +180,23 @@ class _Response:
 
     def json(self) -> dict:
         return self._payload
+
+
+# --------------------------------------------------------------------------
+# escape_md_url
+# --------------------------------------------------------------------------
+
+
+def test_escape_md_url_leaves_the_url_resolvable():
+    # The rules inside a link target differ from the rest of a message. Running
+    # a URL through escape_md yields https://finnhub\.io/... , which 404s and
+    # reads as a bad feed rather than as a rendering bug.
+    url = "https://finnhub.io/api/news?id=e0404a17c6f8"
+    assert telegram.escape_md_url(url) == url
+    assert telegram.escape_md(url) != url
+
+
+def test_escape_md_url_escapes_the_two_characters_that_matter():
+    # A `)` would close the link early; a `\` would escape whatever follows it.
+    assert telegram.escape_md_url("https://x.test/a)b") == r"https://x.test/a\)b"
+    assert telegram.escape_md_url("https://x.test/a" + "\\" + "b") == r"https://x.test/a\\b"

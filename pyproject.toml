@@ -24,4 +24,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.setuptools]
-packages = ["engine", "sources", "render", "delivery", "jobs"]
+# `scripts` is a package, not loose files: delivery/telegram.py imports its
+# redaction helper and jobs/cli.py imports its .env loader, so an install that
+# omitted it would fail at import time inside a scheduled run.
+packages = ["engine", "sources", "render", "delivery", "jobs", "scripts"]
