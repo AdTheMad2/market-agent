@@ -55,6 +55,14 @@ broken for days at a time; it is a bridge, never a destination.
 **Residual:** a multi-day outage is survivable; the user simply reads the market manually,
 as today.
 
+**Phase 2 finding (2026-08-06) — the news fallback covers far less than assumed.**
+Marketaux's free tier returns 3 articles *per response*, not per symbol, and caps at 100
+requests/day. A 50-symbol batch therefore carries news for at most 3 of those names and
+the other 47 come back empty, indistinguishable from "no news". `sources/marketaux.py`
+documents this at the top of the module. It is a genuine fallback for Finnhub only in the
+sense that something arrives — not that coverage is preserved. Per-symbol requests would
+restore coverage and exceed the daily cap at ~100 names.
+
 ---
 
 ### R-3 — GitHub cron delay makes alerts late
@@ -144,6 +152,13 @@ regardless of later deletion.
 the environment and fails the build on a hit. The no-personal-data rule is a Global
 Constraint in the plan, so it is in front of every implementing agent on every task. The
 watchlist holds **tickers only** — no sizes, no entries, no account state.
+
+**Known gap, introduced in Phase 2:** `scan_files_for_values` skips files it cannot decode
+as text, and Phase 2 committed exactly such a file — `data/market.db`. The scanner's
+guarantee is therefore "every tracked *text* file", not "every tracked file". The residual
+risk is small (the schema holds prices, tickers, and delivery records, and every writer is
+in `sources/store.py`), but the guarantee is narrower than it reads and a future table
+holding a free-text field would sit in the blind spot.
 
 ---
 

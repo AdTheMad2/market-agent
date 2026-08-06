@@ -74,3 +74,30 @@ data:
   # 15 minutes in the past. The extra minute is slack against clock skew.
   # docs/SPEC.md §4.3.
   sip_delay_minutes: 16
+
+  # Price basis. Every bars request in the system sends this, daily and
+  # intraday alike: two series on different bases compared against each other
+  # are wrong by the split factor and nothing raises.
+  bar_adjustment: split
+
+  # Length of the intraday bars window, matching the intraday cron interval.
+  intraday_poll_minutes: 15
+
+filings:
+  # How far back a digest run looks for new SEC filings.
+  lookback_days: 7
+
+macro:
+  # Which FRED releases may suppress an alert. Substring match on the release
+  # name, case-insensitive. Deliberately short: a macro event earns a place in
+  # a digest only if it can move the whole tape. Pairs with
+  # suppressors.macro_event_within_days.
+  watched_releases:
+    - consumer price index
+    - employment situation
+    - producer price index
+    - gross domestic product
+    - personal income and outlays   # carries core PCE
+    - fomc
+    - h.4.1                          # Fed balance sheet
+    - retail sales

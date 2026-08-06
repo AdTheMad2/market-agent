@@ -6,7 +6,11 @@ an intraday context: `forbid_intraday` raises rather than quietly spending the
 day's quota 26 times over.
 
 Free tier is 60 calls/minute. A sweep over ~100 names is paced so a digest run
-cannot trip the limit and lose the back half of the watchlist to 429s.
+cannot trip the limit and lose the back half of the watchlist to 429s; the
+shared `get_json` retries the ones that slip through anyway.
+
+The token travels in the `X-Finnhub-Token` header, not the query string, so it
+never reaches a request URL — the same rule `sources/alpaca.py` follows.
 
 See docs/IMPLEMENTATION_PLAN.md Task 2.3.
 """
@@ -17,9 +21,9 @@ import os
 import time
 from datetime import UTC, date, datetime, timedelta
 
-import requests
+import requests  # noqa: F401 — imported so tests can patch the shared module attribute
 
-from sources import Earnings, NewsItem, forbid_intraday
+from sources import Earnings, NewsItem, forbid_intraday, get_json
 
 BASE = "https://finnhub.io/api/v1"
 TIMEOUT = 20
@@ -29,23 +33,15 @@ TIMEOUT = 20
 PACE_SECONDS = 1.0
 
 
-def _token() -> str:
+def _headers() -> dict[str, str]:
     key = os.environ.get("FINNHUB_API_KEY")
     if not key:
         raise RuntimeError("FINNHUB_API_KEY is not set; refusing to call the API")
-    return key
+    return {"X-Finnhub-Token": key}
 
 
-def _get(path: str, params: dict[str, str]) -> object:
-    try:
-        response = requests.get(f"{BASE}{path}", params=params, timeout=TIMEOUT)
-    except requests.RequestException as exc:
-        # The exception carries the request URL, and the token is a query
-        # parameter. Only the type name is safe to surface.
-        raise RuntimeError(f"Finnhub request failed: {type(exc).__name__}") from None
-    if not response.ok:
-        raise RuntimeError(f"Finnhub returned HTTP {response.status_code}")
-    return response.json()
+def _get(path: str, params: dict[str, str], headers: dict[str, str]):
+    return get_json("Finnhub", f"{BASE}{path}", params=params, headers=headers, timeout=TIMEOUT)
 
 
 def _iso(epoch_seconds: int) -> str:
@@ -60,7 +56,7 @@ def company_news(
     One API call per ticker — never call this from an intraday job.
     """
     forbid_intraday("company news")
-    token = _token()
+    headers = _headers()
     end = until or datetime.now(UTC).date()
 
     result: dict[str, list[NewsItem]] = {}
@@ -69,7 +65,8 @@ def company_news(
             time.sleep(pace)
         raw = _get(
             "/company-news",
-            {"symbol": ticker, "from": since.isoformat(), "to": end.isoformat(), "token": token},
+            {"symbol": ticker, "from": since.isoformat(), "to": end.isoformat()},
+            headers,
         )
         items = raw if isinstance(raw, list) else []
         result[ticker] = [
@@ -97,11 +94,12 @@ def earnings_calendar(days: int, tickers: list[str] | None = None) -> list[Earni
     if days <= 0:
         raise ValueError(f"days must be positive, got {days}")
 
-    token = _token()
+    headers = _headers()
     today = datetime.now(UTC).date()
     raw = _get(
         "/calendar/earnings",
-        {"from": today.isoformat(), "to": (today + timedelta(days=days)).isoformat(), "token": token},
+        {"from": today.isoformat(), "to": (today + timedelta(days=days)).isoformat()},
+        headers,
     )
     rows = raw.get("earningsCalendar", []) if isinstance(raw, dict) else []
     wanted = set(tickers) if tickers else None

@@ -124,6 +124,18 @@ def test_company_news_parses_articles_and_converts_epoch_to_utc(monkeypatch):
     assert recorder.calls[0]["params"]["to"] == "2026-08-06"
 
 
+def test_the_finnhub_token_travels_as_a_header_not_in_the_url(monkeypatch):
+    recorder = Recorder([[]])
+    monkeypatch.setattr(finnhub.requests, "get", recorder)
+    monkeypatch.setenv("FINNHUB_API_KEY", "super-secret-token")
+
+    finnhub.company_news(["GOOGL"], since=date(2026, 8, 1), pace=0)
+
+    call = recorder.calls[0]
+    assert call["headers"]["X-Finnhub-Token"] == "super-secret-token"
+    assert "super-secret-token" not in json.dumps(call["params"])
+
+
 def test_company_news_costs_one_call_per_ticker(monkeypatch):
     recorder = Recorder([[]])
     monkeypatch.setattr(finnhub.requests, "get", recorder)
@@ -155,13 +167,34 @@ def test_earnings_calendar_filters_to_the_requested_tickers(monkeypatch):
 
 
 def test_finnhub_http_error_message_carries_no_token(monkeypatch):
-    monkeypatch.setattr(finnhub.requests, "get", Recorder([FakeResponse({}, status_code=429)]))
+    monkeypatch.setattr(finnhub.requests, "get", Recorder([FakeResponse({}, status_code=403)]))
     monkeypatch.setenv("FINNHUB_API_KEY", "super-secret-token")
 
     with pytest.raises(RuntimeError) as excinfo:
         finnhub.earnings_calendar(7)
     assert "super-secret-token" not in str(excinfo.value)
-    assert "429" in str(excinfo.value)
+    assert "403" in str(excinfo.value)
+
+
+def test_a_rate_limited_symbol_is_retried_rather_than_killing_the_sweep(monkeypatch):
+    recorder = Recorder([FakeResponse({}, status_code=429), {"earningsCalendar": []}])
+    monkeypatch.setattr(finnhub.requests, "get", recorder)
+    monkeypatch.setattr("sources.time.sleep", lambda _: None)
+    monkeypatch.setenv("FINNHUB_API_KEY", "k")
+
+    assert finnhub.earnings_calendar(7) == []
+    assert len(recorder.calls) == 2
+
+
+def test_a_provider_that_stays_down_still_fails_the_run(monkeypatch):
+    recorder = Recorder([FakeResponse({}, status_code=503)])
+    monkeypatch.setattr(finnhub.requests, "get", recorder)
+    monkeypatch.setattr("sources.time.sleep", lambda _: None)
+    monkeypatch.setenv("FINNHUB_API_KEY", "k")
+
+    with pytest.raises(RuntimeError, match="503"):
+        finnhub.earnings_calendar(7)
+    assert len(recorder.calls) == 3
 
 
 def test_missing_finnhub_key_raises_before_any_request(monkeypatch):
@@ -251,7 +284,7 @@ def edgar_api(monkeypatch):
 
 
 def test_recent_filings_stops_at_the_cutoff_date(edgar_api):
-    result = edgar.recent_filings(["GOOGL"], since=date(2026, 8, 1))
+    result = edgar.recent_filings(["GOOGL"], since=date(2026, 8, 1), pace=0)
 
     assert [f.form for f in result["GOOGL"]] == ["8-K", "10-Q"]
     assert isinstance(result["GOOGL"][0], Filing)
@@ -259,13 +292,13 @@ def test_recent_filings_stops_at_the_cutoff_date(edgar_api):
 
 
 def test_recent_filings_sends_the_required_user_agent(edgar_api):
-    edgar.recent_filings(["GOOGL"], since=date(2026, 8, 1))
+    edgar.recent_filings(["GOOGL"], since=date(2026, 8, 1), pace=0)
 
     assert edgar_api.calls[0]["headers"]["User-Agent"] == "market-agent test@example.com"
 
 
 def test_an_unmapped_ticker_is_empty_rather_than_fatal(edgar_api):
-    result = edgar.recent_filings(["GOOGL", "NOTREAL"], since=date(2026, 8, 1))
+    result = edgar.recent_filings(["GOOGL", "NOTREAL"], since=date(2026, 8, 1), pace=0)
 
     assert result["NOTREAL"] == []
     assert len(result["GOOGL"]) == 2
@@ -315,6 +348,50 @@ def test_dates_within_narrows_to_the_suppressor_window():
     ]
 
     assert [e.name for e in fred.dates_within(events, days=1, today=date(2026, 8, 6))] == ["CPI"]
+
+
+def test_the_edgar_ticker_map_is_guarded_like_every_other_non_bars_fetch(monkeypatch):
+    recorder = Recorder([{}])
+    monkeypatch.setattr(edgar.requests, "get", recorder)
+    monkeypatch.setattr(edgar, "_ticker_to_cik", None)
+    monkeypatch.setenv("EDGAR_USER_AGENT", "market-agent test@example.com")
+
+    with intraday_run():
+        with pytest.raises(RuntimeError, match="intraday"):
+            edgar.ticker_map()
+    assert recorder.calls == []
+
+
+def test_a_truncated_macro_calendar_is_paged_rather_than_silently_short(monkeypatch):
+    """The watched-list filter runs client-side, so a server-side row cap drops
+    the LATEST dates under an ascending sort — an absent suppressor."""
+    page1 = {
+        "release_dates": [
+            {"release_id": 1, "release_name": "Wheat Outlook", "date": "2026-08-07"},
+            {"release_id": 2, "release_name": "Cattle on Feed", "date": "2026-08-08"},
+        ]
+    }
+    page2 = {
+        "release_dates": [
+            {"release_id": 10, "release_name": "Consumer Price Index", "date": "2026-08-12"}
+        ]
+    }
+    recorder = Recorder([page1, page2])
+    monkeypatch.setattr(fred.requests, "get", recorder)
+    monkeypatch.setattr(fred, "PAGE_LIMIT", 2)
+    monkeypatch.setenv("FRED_API_KEY", "k")
+
+    events = fred.macro_calendar(30)
+
+    assert [e.name for e in events] == ["Consumer Price Index"]
+    assert [c["params"]["offset"] for c in recorder.calls] == ["0", "2"]
+
+
+def test_the_watched_release_list_comes_from_config_not_code(monkeypatch):
+    watched = fred.watched_releases()
+
+    assert "consumer price index" in watched
+    assert all(term == term.lower() for term in watched)
 
 
 def test_macro_calendar_rejects_a_non_positive_window(monkeypatch):

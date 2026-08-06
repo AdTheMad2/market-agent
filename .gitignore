@@ -6,6 +6,13 @@ config/.env
 config/.env.*
 !config/.env.example
 
+# SQLite sidecars. data/market.db is committed by design (docs/SPEC.md §7);
+# a rollback journal committed beside it would be replayed on the next open and
+# would silently roll the committed state back.
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Python
 venv/
 __pycache__/

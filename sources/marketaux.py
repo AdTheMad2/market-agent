@@ -1,13 +1,16 @@
 """Marketaux: news fallback when Finnhub is unavailable or rate-limited.
 
-Marketaux takes a comma-separated symbol list, so a whole watchlist costs a
-handful of calls rather than one per name — but the free tier caps at 100
-requests/day and 3 articles per response, which is why it is the fallback and
-not the primary (docs/SPEC.md §4.1).
+**Coverage warning, and the reason this is a fallback and not a source.** The
+free tier returns 3 articles *per response*, not per symbol, and caps at 100
+requests/day. A 50-symbol batch therefore carries news for at most 3 of those
+50 names; the other 47 come back empty and are indistinguishable from "no news
+today". Do not read an empty result here as an absence of news. Covering a
+100-name watchlist properly would need per-symbol requests, which the daily cap
+does not allow (docs/SPEC.md §4.1, RISKS.md R-2).
 
-Its failure mode is unusual and worth guarding: **quota exhaustion is reported
-in the response body with HTTP 200**, not as a status code. A caller that only
-checks `response.ok` sees a successful empty sweep.
+Its other failure mode is unusual and worth guarding: **quota exhaustion is
+reported in the response body with HTTP 200**, not as a status code. A caller
+that only checks `response.ok` sees a successful empty sweep.
 
 Never called from an intraday run: intraday fetches bars only (§4.2).
 
@@ -18,9 +21,9 @@ from __future__ import annotations
 
 import os
 
-import requests
+import requests  # noqa: F401 — imported so tests can patch the shared module attribute
 
-from sources import NewsItem, forbid_intraday
+from sources import NewsItem, forbid_intraday, get_json
 
 URL = "https://api.marketaux.com/v1/news/all"
 TIMEOUT = 20
@@ -37,9 +40,12 @@ def _token() -> str:
 
 
 def ticker_news(tickers: list[str], limit: int = 3) -> dict[str, list[NewsItem]]:
-    """Recent articles per ticker. Every requested ticker gets a key, empty if
-    Marketaux returned nothing for it — a missing key would let a caller skip a
-    name without noticing."""
+    """Recent articles, mapped onto whichever requested tickers they mention.
+
+    Every requested ticker gets a key — empty if nothing came back for it, which
+    given the per-response article cap above is the common case rather than a
+    statement about the news.
+    """
     forbid_intraday("Marketaux news")
     token = _token()
     result: dict[str, list[NewsItem]] = {t: [] for t in tickers}
@@ -53,16 +59,10 @@ def ticker_news(tickers: list[str], limit: int = 3) -> dict[str, list[NewsItem]]
             "limit": str(limit),
             "api_token": token,
         }
-        try:
-            response = requests.get(URL, params=params, timeout=TIMEOUT)
-        except requests.RequestException as exc:
-            # The API token is a query parameter, so the exception's own text
-            # carries it. Only the type name is safe.
-            raise RuntimeError(f"Marketaux request failed: {type(exc).__name__}") from None
-        if not response.ok:
-            raise RuntimeError(f"Marketaux returned HTTP {response.status_code}")
+        # The token is a query parameter — Marketaux offers no header form — so
+        # `get_json` never surfaces the URL or the body in its error text.
+        body = get_json("Marketaux", URL, params=params, timeout=TIMEOUT)
 
-        body = response.json()
         if "error" in body:
             # HTTP 200 with an error object is how the free tier reports
             # exhaustion. Treating it as success is a silent empty digest.

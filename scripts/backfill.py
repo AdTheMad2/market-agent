@@ -34,14 +34,26 @@ WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist_core.yml"
 RULES_PATH = REPO_ROOT / "config" / "rules.yml"
 
 
-def core_tickers(path: Path = WATCHLIST_PATH) -> list[str]:
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return [str(t).upper() for t in (data.get("tickers") or [])]
+def core_tickers(path: Path | None = None) -> list[str]:
+    """The core watchlist, upper-cased and de-duplicated.
+
+    The file is hand-edited; a repeated symbol would otherwise be fetched in two
+    batches and its bars merged twice.
+    """
+    data = yaml.safe_load((path or WATCHLIST_PATH).read_text(encoding="utf-8")) or {}
+    seen: set[str] = set()
+    tickers = []
+    for raw in data.get("tickers") or []:
+        ticker = str(raw).upper()
+        if ticker not in seen:
+            seen.add(ticker)
+            tickers.append(ticker)
+    return tickers
 
 
-def history_length(path: Path = RULES_PATH) -> int:
+def history_length(path: Path | None = None) -> int:
     """`data.daily_bars_history` from config/rules.yml. No threshold in code."""
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data = yaml.safe_load((path or RULES_PATH).read_text(encoding="utf-8"))
     return int(data["data"]["daily_bars_history"])
 
 
@@ -50,6 +62,10 @@ def total_rows(db: Path) -> int:
 
 
 def main() -> int:
+    # The Windows console defaults to cp1252 and mangles non-ASCII output.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=str(store.DEFAULT_DB_PATH), help="SQLite file to fill")
     parser.add_argument("--days", type=int, default=None, help="bars per ticker (default: config)")
@@ -69,16 +85,18 @@ def main() -> int:
 
     print(f"Backfilling {len(tickers)} tickers x {days} daily bars into {db}")
     fetched = alpaca.daily_bars(tickers, days=days)
-    written = store.upsert_many(db, fetched)
+    written = store.upsert_many(db, fetched, timeframe=store.DAILY)
+    pruned = store.prune_bars(db, keep=days, timeframe=store.DAILY)
 
     after = total_rows(db)
-    print(f"  rows written: {written}   table rows: {before} -> {after} (delta {after - before})\n")
+    print(f"  rows written: {written}   pruned: {pruned}")
+    print(f"  table rows: {before} -> {after} (delta {after - before})\n")
 
     short = []
     for ticker in tickers:
         count = store.bar_count(db, ticker)
         bars = store.bars_for(db, ticker, limit=1)
-        latest = bars[0].t if bars else "—"
+        latest = bars[0].t if bars else "n/a"
         marker = "OK  " if count >= days else "SHORT"
         print(f"  [{marker}] {ticker:<6} {count:>4} bars   latest {latest}")
         if count < days:
@@ -89,7 +107,9 @@ def main() -> int:
         print("  A ticker short of its history is a hole every moving average will inherit.")
         return 1
 
-    print(f"\n  Every ticker has at least {days} bars. Re-run this script: the delta must be 0.")
+    print(f"\n  Every ticker has {days} bars. Re-run this script within the same session:")
+    print("  the delta must be 0. (Re-run on a later trading day and the delta is the")
+    print("  new session's bars minus the pruned oldest ones - also 0, by design.)")
     return 0
 
 
