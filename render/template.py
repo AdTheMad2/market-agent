@@ -57,6 +57,13 @@ RECOMMENDATION_RE = re.compile(r"\b(buy|sell)\w*", re.IGNORECASE)
 MAX_NEWS_LINES = 8
 MAX_EVENT_LINES = 8
 
+# A list bullet, pre-escaped. `-` is reserved in MarkdownV2, and the headline
+# lines are built by interpolation rather than passed whole to `escape_md`, so
+# the bullet has to arrive already escaped. Writing a bare "- " there put an
+# unescaped `-` in a live digest on 2026-08-06 and Telegram rejected the entire
+# message with HTTP 400.
+BULLET = escape_md("-")
+
 
 class RecommendationLeak(AssertionError):
     """Agent-generated text contained a recommendation word.
@@ -206,7 +213,7 @@ def render_digest(
             # by rule strength, so by the time the reader reaches the headlines
             # there is nothing telling them which name each one belongs to.
             lines.append(
-                f"- ${escape_md(article.ticker)} "
+                f"{BULLET} ${escape_md(article.ticker)} "
                 f"[{escape_md(article.headline)}]({escape_md_url(article.url)})"
             )
         if withheld:

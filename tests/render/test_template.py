@@ -18,7 +18,7 @@ import pytest
 from engine.suppressors import Suppressed
 from engine.triggers import Trigger
 from render import template
-from sources import MacroEvent, NewsItem
+from sources import Earnings, MacroEvent, NewsItem
 
 
 def make_trigger(**overrides) -> Trigger:
@@ -278,3 +278,35 @@ def test_a_headline_using_an_inflected_form_is_also_withheld():
     assert "buy" not in text.lower()
     assert "sell" not in text.lower()
     assert "2 headline" in plain(text)
+
+
+def test_no_reserved_character_escapes_the_digest_unescaped():
+    """The check that was missing on 2026-08-06.
+
+    `test_every_special_in_an_alert_is_escaped_...` covered render_alert only,
+    so a bare "- " bullet in the headline section reached a live send and
+    Telegram rejected the whole digest with HTTP 400 "Character '-' is reserved".
+    Every section is exercised here, and link targets are removed first because
+    a URL follows different rules inside `(...)`.
+    """
+    import re as _re
+
+    text = template.render_digest(
+        [make_suppressed(), make_suppressed(ticker="NVDA", rule="range_break",
+                                            detail="20-session high")],
+        dropped=[{"ticker": "AVGO", "rule": "rsi_extreme", "reason": "ceiling", "level": 80.0}],
+        day=date(2026, 8, 5),
+        title="Post-close digest",
+        news=[news_item("GOOGL", "A data centre opened", "2026-08-05T12:00:00Z",
+                        "https://x.test/a.b?c=d")],
+        earnings=[Earnings(ticker="GOOGL", date="2026-08-20", when="amc")],
+        macro=[MacroEvent(date="2026-08-12", name="Consumer Price Index")],
+    )
+
+    # Link targets obey escape_md_url, not escape_md; drop them before scanning.
+    scanned = _re.sub(r"\]\([^)]*\)", "]()", text)
+
+    # `-` is never used as markup here, so every one of them must be escaped.
+    assert scanned.count("-") == scanned.count(r"\-")
+    # Same for `.`, which appears in every price and every date.
+    assert scanned.count(".") == scanned.count(r"\.")
