@@ -452,7 +452,11 @@ database is committed.
       headline section that only a live send could surface, since the escaping test
       covered `render_alert` and not `render_digest`. Fixed in `a48c219`.
 - [ ] **Step 4:** Let it fire on schedule. **Phase 3 observable check: a digest arrives on
-      the phone at ~17:15 ET on a trading day, unprompted.**
+      the phone at ~17:15 ET on a trading day, unprompted.** The 21:15 UTC run on
+      2026-08-06 did not fire — checked at 23:21 UTC, and `gh run list` shows only the two
+      manual dispatches. The workflows were registered at ~14:47 UTC the same day, and
+      GitHub commonly skips the first scheduled occurrence on a newly created workflow.
+      Nothing to fix yet; the next occurrence is the test.
 - [x] **Step 5:** Commit.
 
 ### Task 3.4: Pre-market job
@@ -495,7 +499,7 @@ anything. **If the project stops here, it is still useful.**
 **Files:**
 - Create: `jobs/intraday.py`, `.github/workflows/intraday.yml`
 
-- [ ] **Step 1:** Implement: market-open check → fetch **bars only** → engine → rank with
+- [x] **Step 1:** Implement: market-open check → fetch **bars only** → engine → rank with
       `already_sent_today=sent_count_today()` → send → `record_sent` → `record_dropped` for
       everything the ceiling rejected (the post-close job is a separate process and cannot
       see `rank`'s in-process `dropped` list) → commit only if state changed.
@@ -507,13 +511,21 @@ anything. **If the project stops here, it is still useful.**
       `engine.triggers.evaluate` as a daily series: RSI(14) over fifteen one-minute closes
       returns a plausible number that is pure noise and would consume a ceiling slot.
       **(c)** if intraday bars are persisted at all, pass `timeframe=store.INTRADAY`.
-- [ ] **Step 2:** Write the workflow: `cron: "*/15 14-20 * * 1-5"` plus `workflow_dispatch`.
+- [x] **Step 2:** Write the workflow: `cron: "*/15 14-20 * * 1-5"` plus `workflow_dispatch`.
       Add `concurrency: group: intraday, cancel-in-progress: false` so a delayed run cannot
       overlap the next and double-send.
 - [ ] **Step 3:** Arm a level deliberately close to the current price. Confirm the alert
-      arrives within one poll of the touch.
+      arrives within one poll of the touch. **Needs a live session and a level the user
+      chooses** — `config/watchlist_core.yml` declares none, and picking a price to watch
+      is not the implementing agent's call. The mechanism is covered in
+      `tests/jobs/test_intraday.py`.
 - [ ] **Step 4:** Arm five levels that all trigger. **Phase 4 observable check: exactly 3
       alerts arrive; the other 2 appear in that evening's post-close digest as dropped.**
+      Same blocker as Step 3. Asserted in unit form by
+      `test_five_touches_send_three_and_drop_two` and
+      `test_the_two_dropped_are_recorded_for_the_evening_digest`, which between them found
+      the `sent_alerts` uniqueness defect that would have leaked the ceiling in production
+      (fixed in `7d49ff4`).
 - [ ] **Step 5:** Commit.
 
 ### Task 4.2: `verify_pipeline.py`
@@ -521,10 +533,15 @@ anything. **If the project stops here, it is still useful.**
 **Files:**
 - Create: `scripts/verify_pipeline.py`
 
-- [ ] **Step 1:** Implement an end-to-end dry run — fetch → engine → rank → render →
+- [x] **Step 1:** Implement an end-to-end dry run — fetch → engine → rank → render →
       Telegram **test chat**, sending no live alert and writing no state.
-- [ ] **Step 2:** Run it; confirm the test chat receives the dry-run output.
-- [ ] **Step 3:** Commit. Re-run after every change to any of these subsystems.
+- [x] **Step 2:** Run it; confirm the test chat receives the dry-run output. Run
+      2026-08-06 with `--no-send`: all ten stages OK against live providers.
+      **The send half is untested: `TELEGRAM_TEST_CHAT_ID` is not set**, and the script
+      refuses to fall back to the live chat — it renders an alert indistinguishable from a
+      real one, and teaching the user to doubt their alerts costs more than the
+      convenience. Set a test chat to close this.
+- [x] **Step 3:** Commit. Re-run after every change to any of these subsystems.
 
 ---
 
