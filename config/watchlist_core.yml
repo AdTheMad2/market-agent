@@ -15,7 +15,30 @@ tickers:
 # Optional manually-armed price levels, mirroring the "alert me if it goes past
 # X" workflow. Removed automatically at the post-close run once triggered.
 # Levels are public market prices and carry no personal information.
-armed_levels: []
-  # - ticker: GOOGL
-  #   level: 350.0
-  #   direction: above   # above | below
+# TEMPORARY — Phase 4 Step 4 verification, added 2026-08-06, DELETE AFTER.
+#
+# These are not levels anyone wants watched. They exist to trip the daily
+# ceiling on the first poll of the session so the observable check can be
+# observed: five qualify, exactly three are sent, two are dropped and reported
+# in that evening's post-close digest.
+#
+# `direction: above` fires when the window's high reaches the level, so a level
+# already below the price fires on the first poll by construction. That is the
+# point — waiting for the market to cross five levels of its own accord makes
+# the test's outcome depend on the weather.
+armed_levels:
+  - ticker: GOOGL      # 2026-08-06 close 357.75
+    level: 350.0
+    direction: above
+  - ticker: GOOGL
+    level: 352.0
+    direction: above
+  - ticker: NVDA       # 2026-08-06 close 218.99
+    level: 214.0
+    direction: above
+  - ticker: NVDA
+    level: 216.0
+    direction: above
+  - ticker: AVGO       # 2026-08-06 close 420.56
+    level: 412.0
+    direction: above
