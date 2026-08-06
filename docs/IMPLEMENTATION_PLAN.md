@@ -457,7 +457,17 @@ database is committed.
 - Create: `jobs/premarket.py`, `.github/workflows/premarket.yml`
 
 - [ ] **Step 1:** Implement: same pipeline, plus writing the day's armed levels into
-      `armed_levels` and resetting the daily sent counter.
+      `armed_levels` (`store.arm_level`, `source="job"`).
+      **No counter reset exists or should.** `store.sent_count_today` derives the count
+      from the UTC date of the rows in `sent_alerts`, so a new day resets it by
+      construction; the only way to "reset" a derived count is deleting rows, which would
+      also destroy the `last_sent` cooldown history the same table serves. This step read
+      "resetting the daily sent counter" until Phase 2 built the counter — corrected
+      2026-08-06, Phase 2 review.
+      Record the two digests with `kind="digest"` so they do not consume the intraday
+      ceiling, and note that a level disarmed at post-close is re-armed by this job for as
+      long as it remains in `config/watchlist_core.yml` — whichever job owns removal owns
+      it in the YAML, not in the table.
 - [ ] **Step 2:** `cron: "15 13 * * 1-5"` plus `workflow_dispatch`.
 - [ ] **Step 3:** Confirm a pre-market digest arrives and `armed_levels` is populated.
 - [ ] **Step 4:** Commit.
@@ -475,8 +485,17 @@ anything. **If the project stops here, it is still useful.**
 - Create: `jobs/intraday.py`, `.github/workflows/intraday.yml`
 
 - [ ] **Step 1:** Implement: market-open check → fetch **bars only** → engine → rank with
-      `already_sent_today=sent_count_today()` → send → `record_sent` → commit only if state
-      changed.
+      `already_sent_today=sent_count_today()` → send → `record_sent` → `record_dropped` for
+      everything the ceiling rejected (the post-close job is a separate process and cannot
+      see `rank`'s in-process `dropped` list) → commit only if state changed.
+      Three constraints Phase 2 built and this job must honour:
+      **(a)** wrap the whole body in `sources.intraday_run()` — the news guard is armed by
+      that context and by nothing else, and a forgotten wrapper fails silently. Assert it
+      in `tests/jobs/`.
+      **(b)** compare intraday prices against levels, do **not** feed 1-minute bars to
+      `engine.triggers.evaluate` as a daily series: RSI(14) over fifteen one-minute closes
+      returns a plausible number that is pure noise and would consume a ceiling slot.
+      **(c)** if intraday bars are persisted at all, pass `timeframe=store.INTRADAY`.
 - [ ] **Step 2:** Write the workflow: `cron: "*/15 14-20 * * 1-5"` plus `workflow_dispatch`.
       Add `concurrency: group: intraday, cancel-in-progress: false` so a delayed run cannot
       overlap the next and double-send.
