@@ -88,6 +88,12 @@ class Trigger:
     rsi: float | None
     bar_timestamp: str
     watchlist: str
+    # Which variant of `rule` fired: "150-day", "20-session high", "overbought".
+    # `rule` and `level` alone cannot say it -- a message reading "near a moving
+    # average, level 412.50" leaves the reader unable to tell a 50-day touch from
+    # a 200-day one, which is most of the signal. Defaulted so every existing
+    # construction and test stays valid; renderers treat "" as "no detail".
+    detail: str = ""
 
 
 def _distance_pct(price: float, level: float) -> float | None:
@@ -155,6 +161,7 @@ def evaluate(
                             rsi=current_rsi,
                             bar_timestamp=bar_timestamp,
                             watchlist=watchlist,
+                            detail=f"{period}-day",
                         )
                     )
                 continue
@@ -172,6 +179,7 @@ def evaluate(
                     rsi=current_rsi,
                     bar_timestamp=bar_timestamp,
                     watchlist=watchlist,
+                    detail=f"{period}-day",
                 )
             )
 
@@ -186,10 +194,13 @@ def evaluate(
             prior_high = max(prior_highs)
             prior_low = min(prior_lows)
             level = None
+            side = ""
             if price > prior_high:
                 level = prior_high
+                side = f"{rules.range_break_days}-session high"
             elif price < prior_low:
                 level = prior_low
+                side = f"{rules.range_break_days}-session low"
             if level is not None:
                 range_distance = _distance_pct(price, level)
                 if range_distance is not None:
@@ -204,6 +215,7 @@ def evaluate(
                             rsi=current_rsi,
                             bar_timestamp=bar_timestamp,
                             watchlist=watchlist,
+                            detail=side,
                         )
                     )
 
@@ -228,15 +240,23 @@ def evaluate(
                         rsi=current_rsi,
                         bar_timestamp=bar_timestamp,
                         watchlist=watchlist,
+                        detail=(
+                            "crossed from below"
+                            if previous_close < level
+                            else "crossed from above"
+                        ),
                     )
                 )
 
     if current_rsi is not None:
         extreme_level = None
+        extreme_side = ""
         if current_rsi >= rules.rsi_extreme_overbought:
             extreme_level = rules.rsi_extreme_overbought
+            extreme_side = "overbought"
         elif current_rsi <= rules.rsi_extreme_oversold:
             extreme_level = rules.rsi_extreme_oversold
+            extreme_side = "oversold"
         if extreme_level is not None:
             triggers.append(
                 Trigger(
@@ -249,6 +269,7 @@ def evaluate(
                     rsi=current_rsi,
                     bar_timestamp=bar_timestamp,
                     watchlist=watchlist,
+                    detail=extreme_side,
                 )
             )
 

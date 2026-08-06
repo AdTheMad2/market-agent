@@ -283,3 +283,36 @@ def test_rules_from_mapping_reads_triggers_section(rules):
     assert rules.volume_multiple == 1.5
     assert rules.rsi_extreme_overbought == 80
     assert rules.rsi_extreme_oversold == 20
+
+
+# --- detail -------------------------------------------------------------------
+#
+# Added with the Phase 3 renderer. `rule` and `level` alone cannot say which
+# variant fired, and a message reading "near a moving average, level 412.50"
+# leaves the reader unable to tell a 50-day touch from a 200-day one -- which is
+# most of the signal. See docs/IMPLEMENTATION_PLAN.md Task 3.2.
+
+
+def test_ma_proximity_detail_names_the_period(rules):
+    # Same fixture as test_ma_proximity_fires_within_threshold.
+    closes = oscillating(100.0, 148) + [100.4, 100.4]
+    triggers = evaluate("GOOG", bars_from_closes(closes), rules, armed=[])
+    details = {t.detail for t in triggers if t.rule == "ma_proximity"}
+    assert details == {"50-day", "150-day"}
+
+
+def test_armed_level_detail_states_the_direction(rules):
+    bars = bars_from_closes([349.0, 351.0])
+    trigger = evaluate("GOOG", bars, rules, armed=[350.0])[0]
+    assert trigger.rule == "armed_level"
+    assert trigger.detail == "crossed from below"
+
+
+def test_rsi_extreme_detail_names_the_side(rules):
+    # Nineteen strictly rising closes: every period is a gain, so Wilder's
+    # RSI is exactly 100 and sits above rsi_extreme_overbought (80).
+    triggers = evaluate(
+        "GOOG", bars_from_closes([float(i) for i in range(1, 20)]), rules, armed=[]
+    )
+    extreme = [t for t in triggers if t.rule == "rsi_extreme"]
+    assert extreme and extreme[0].detail == "overbought"

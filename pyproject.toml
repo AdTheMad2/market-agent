@@ -6,6 +6,12 @@ requires-python = ">=3.12"
 dependencies = [
     "requests>=2.32",
     "pyyaml>=6.0",
+    # Holidays, early closes and DST shifts are handled in code, never in cron
+    # expressions (docs/SPEC.md §3.1). Pulls pandas; nothing in engine/ imports it.
+    "pandas-market-calendars>=5.0",
+    # Windows ships no IANA time zone database, so zoneinfo cannot resolve
+    # America/New_York without this. Alerts state the bar time in ET.
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
