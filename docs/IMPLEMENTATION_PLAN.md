@@ -515,17 +515,22 @@ anything. **If the project stops here, it is still useful.**
       Add `concurrency: group: intraday, cancel-in-progress: false` so a delayed run cannot
       overlap the next and double-send.
 - [ ] **Step 3:** Arm a level deliberately close to the current price. Confirm the alert
-      arrives within one poll of the touch. **Needs a live session and a level the user
-      chooses** — `config/watchlist_core.yml` declares none, and picking a price to watch
-      is not the implementing agent's call. The mechanism is covered in
-      `tests/jobs/test_intraday.py`.
+      arrives within one poll of the touch. **Five levels armed 2026-08-06** (temporary,
+      marked DELETE AFTER in `config/watchlist_core.yml`); the next session's first poll
+      is the test. `scripts/verify_intraday.py` replayed the 14:15-14:30 UTC window of
+      2026-08-06 through `jobs.intraday.run` against live Alpaca bars and produced the
+      predicted split, so the mechanism holds against real data. **Latency is what is
+      left**: a replay cannot show that an alert arrives *within one poll of the touch*.
 - [ ] **Step 4:** Arm five levels that all trigger. **Phase 4 observable check: exactly 3
       alerts arrive; the other 2 appear in that evening's post-close digest as dropped.**
       Same blocker as Step 3. Asserted in unit form by
       `test_five_touches_send_three_and_drop_two` and
       `test_the_two_dropped_are_recorded_for_the_evening_digest`, which between them found
       the `sent_alerts` uniqueness defect that would have leaked the ceiling in production
-      (fixed in `7d49ff4`).
+      (fixed in `7d49ff4`). Confirmed against live bars by `scripts/verify_intraday.py` on
+      2026-08-06: 5 touched, 3 sent, 2 dropped — AVGO 412.00, GOOGL 350.00 and GOOGL
+      352.00 sent, both NVDA levels held back. What remains is that the same split arrive
+      unprompted, and that the evening digest report the two.
 - [ ] **Step 5:** Commit.
 
 ### Task 4.2: `verify_pipeline.py`

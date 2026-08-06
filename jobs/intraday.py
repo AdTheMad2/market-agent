@@ -133,10 +133,24 @@ def run(
     moment: datetime | None = None,
     dry_run: bool = False,
     to_test_chat: bool = False,
+    fetch_bars=None,
 ) -> IntradayOutcome:
-    """One poll, start to finish, inside the intraday guard."""
+    """One poll, start to finish, inside the intraday guard.
+
+    `fetch_bars` defaults to `alpaca.intraday_bars` and exists so
+    `scripts/verify_intraday.py` can replay a past session window through this
+    exact code path. It is a seam, not a mode: nothing else about the run
+    changes, so a rehearsal that passes proves the scheduled poll and not a
+    parallel implementation of it.
+    """
     with sources.intraday_run():
-        return _run(db=db, moment=moment, dry_run=dry_run, to_test_chat=to_test_chat)
+        return _run(
+            db=db,
+            moment=moment,
+            dry_run=dry_run,
+            to_test_chat=to_test_chat,
+            fetch_bars=fetch_bars or alpaca.intraday_bars,
+        )
 
 
 def _run(
@@ -145,6 +159,7 @@ def _run(
     moment: datetime | None,
     dry_run: bool,
     to_test_chat: bool,
+    fetch_bars,
 ) -> IntradayOutcome:
     db = Path(db or store.DEFAULT_DB_PATH)
     now = moment or datetime.now(UTC)
@@ -169,7 +184,7 @@ def _run(
         print("no armed levels; skipping the fetch entirely")
         return IntradayOutcome(ran=True)
 
-    bars_by_ticker = alpaca.intraday_bars(watching)
+    bars_by_ticker = fetch_bars(watching)
 
     touches: list[Touch] = []
     for ticker in watching:

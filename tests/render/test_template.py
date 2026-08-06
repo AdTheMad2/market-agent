@@ -310,3 +310,18 @@ def test_no_reserved_character_escapes_the_digest_unescaped():
     assert scanned.count("-") == scanned.count(r"\-")
     # Same for `.`, which appears in every price and every date.
     assert scanned.count(".") == scanned.count(r"\.")
+
+
+def test_a_missing_volume_drops_its_unit_too():
+    # "Volume: n/ax 20-day average" reads as a glitch. Every intraday alert
+    # takes this branch: a 15-minute window has no 20-day baseline to be a
+    # multiple of. Surfaced by scripts/verify_intraday.py on 2026-08-06.
+    text = plain(template.render_alert(make_suppressed(volume_ratio=None)))
+    assert "Volume: n/a" in text
+    assert "n/ax" not in text
+    assert "20-day average" not in text
+
+
+def test_a_present_volume_keeps_its_unit():
+    text = plain(template.render_alert(make_suppressed(volume_ratio=1.53)))
+    assert "1.5x 20-day average" in text

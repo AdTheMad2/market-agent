@@ -124,7 +124,14 @@ def render_alert(item: Suppressed) -> str:
         # The literal text is escaped too, not only the interpolated number:
         # MarkdownV2 reserves `-`, and an unescaped one anywhere in the message
         # is an HTTP 400 for the whole send, not a cosmetic problem.
-        f"Volume: {escape_md(_number(trigger.volume_ratio, 1))}x {escape_md('20-day average')}",
+        #
+        # The unit is dropped along with the number when there is no number:
+        # "Volume: n/ax 20-day average" reads as a glitch, and an alert that
+        # looks glitchy gets trusted less than one that says plainly it does not
+        # know. Intraday alerts always take this branch — volume over a
+        # 15-minute window has no 20-day baseline to be a multiple of.
+        f"Volume: {escape_md(_number(trigger.volume_ratio, 1))}"
+        + ("" if trigger.volume_ratio is None else f"x {escape_md('20-day average')}"),
         f"RSI\\(14\\): {escape_md(_number(trigger.rsi, 1))}",
     ]
     if item.demoted and item.reason:

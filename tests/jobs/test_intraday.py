@@ -293,3 +293,36 @@ def test_a_ticker_returning_no_bars_costs_only_itself(wired, monkeypatch):
     outcome = intraday.run(db=wired["db"], moment=MID_SESSION)
     assert outcome.sent == 1
     assert any(e.startswith("bars: NVDA") for e in outcome.errors)
+
+
+def test_the_fetch_seam_defaults_to_the_live_provider(wired, monkeypatch):
+    # scripts/verify_intraday.py replays a past window through this seam. If it
+    # ever stopped defaulting to alpaca.intraday_bars, the scheduled poll would
+    # fetch nothing and the rehearsal would still pass.
+    called = []
+    monkeypatch.setattr(
+        intraday.alpaca,
+        "intraday_bars",
+        lambda tickers, minutes=None: (
+            called.append(tuple(tickers)),
+            {t: minute_bars(349.0, 351.0) for t in tickers},
+        )[1],
+    )
+    arm(wired["db"], "GOOGL", 350.0)
+    intraday.run(db=wired["db"], moment=MID_SESSION)
+    assert called == [("GOOGL",)]
+
+
+def test_an_injected_fetcher_replaces_the_provider_entirely(wired, monkeypatch):
+    monkeypatch.setattr(
+        intraday.alpaca,
+        "intraday_bars",
+        lambda *a, **k: pytest.fail("an injected fetcher must not fall through to the provider"),
+    )
+    arm(wired["db"], "GOOGL", 350.0)
+    outcome = intraday.run(
+        db=wired["db"],
+        moment=MID_SESSION,
+        fetch_bars=lambda watching: {t: minute_bars(349.0, 351.0) for t in watching},
+    )
+    assert outcome.sent == 1
