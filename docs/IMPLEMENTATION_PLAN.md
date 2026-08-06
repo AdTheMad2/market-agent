@@ -446,7 +446,10 @@ database is committed.
 - [x] **Step 2:** Write the workflow. `cron: "15 21 * * 1-5"`, plus `workflow_dispatch`,
       plus `permissions: contents: write` so the job can commit its state.
 - [ ] **Step 3:** Trigger it manually via `workflow_dispatch` and confirm a message
-      arrives.
+      arrives. **Blocked on the repo existing on GitHub with its Actions secrets set —
+      both still ⬜ on the deploy checklist.** Verified as far as it can be locally on
+      2026-08-06: `python -m jobs.postclose --dry-run --db <scratch>` ran the whole chain
+      against the live providers and printed a well-formed digest.
 - [ ] **Step 4:** Let it fire on schedule. **Phase 3 observable check: a digest arrives on
       the phone at ~17:15 ET on a trading day, unprompted.**
 - [ ] **Step 5:** Commit.
@@ -470,6 +473,11 @@ database is committed.
       it in the YAML, not in the table.
 - [x] **Step 2:** `cron: "15 13 * * 1-5"` plus `workflow_dispatch`.
 - [ ] **Step 3:** Confirm a pre-market digest arrives and `armed_levels` is populated.
+      **Blocked on the same two ⬜ checklist rows as Task 3.3 Step 3.** The arming half is
+      covered locally: `tests/jobs/test_digest.py` asserts the whole lifecycle — pre-market
+      arms from the YAML, post-close disarms what fired, and the next pre-market re-arms
+      anything still listed. `config/watchlist_core.yml` currently declares no levels, so a
+      live run will report `armed 0 level(s)` until one is added.
 - [ ] **Step 4:** Commit.
 
 **Phase 3 is done when:** two digests arrive per trading day without anyone touching
@@ -664,9 +672,9 @@ than an unapplied one. ✅ = done by the implementing agent; ⬜ = requires the 
 | Finnhub / Marketaux / FRED | Register, obtain keys | `verify_quotas.py` returns 200 for each | ✅ 2026-08-05 |
 | Gemini | Obtain AI Studio key | `verify_quotas.py` returns a completion | ✅ 2026-08-05 |
 | Telegram | Create bot via BotFather, obtain chat ID | `verify_delivery.py` exits 0 and the message arrives | ✅ 2026-08-05 |
-| Actions secrets | Add all 8 names from `.env.example` | A `workflow_dispatch` run succeeds | ⬜ |
-| Actions permissions | Set workflow `contents: write` | A scheduled run commits `data/` | ✅ |
-| Workflows | Confirm all four are enabled after first push | Actions tab lists four scheduled workflows | ✅ |
+| Actions secrets | Add all 9 names from `.env.example` **except `TELEGRAM_TEST_CHAT_ID`** — including `EDGAR_USER_AGENT`, which is not a credential but which `sources/edgar.py` raises without | A `workflow_dispatch` run succeeds | ⬜ |
+| Actions permissions | Set workflow `contents: write` | A scheduled run commits `data/` | ✅ 2026-08-06, in both workflow files |
+| Workflows | Confirm all four are enabled after first push | Actions tab lists four scheduled workflows | ⬜ — two exist (`premarket`, `postclose`); `intraday` is Phase 4 and `weekly_screen` is Phase 7 |
 | Vercel | Import the repo, Hobby plan, set build output | Live URL renders the dashboard | ⬜ |
 | Vercel | Confirm deploy-on-push from the Actions bot | A scan commit produces a new deployment | ⬜ |
 | Local | `venv` created, `.env` populated and gitignored | `verify_secrets.py` exits 0 | ✅ 2026-08-05 |
