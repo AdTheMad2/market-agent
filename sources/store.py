@@ -486,12 +486,30 @@ def record_dropped(
 
 
 def dropped_on(db: str | Path, day: date | None = None) -> list[dict]:
-    """Everything dropped on `day` (UTC), for the post-close digest."""
+    """Everything dropped on `day` (UTC), for the post-close digest.
+
+    One row per thing held back, not one per poll that held it back. A level
+    that loses to the ceiling keeps losing on every later poll of the session,
+    each with its own `bar_ts`, so the ledger legitimately grows all afternoon
+    while the number of things worth telling the user about does not. The
+    earliest row of each group is kept: the moment the ceiling actually bit.
+    """
     target = (day or datetime.now(UTC).date()).isoformat()
     with _session(db) as conn:
         rows = conn.execute(
-            "SELECT ticker, rule, reason, level, bar_ts, dropped_at FROM dropped_alerts "
-            "WHERE substr(dropped_at, 1, 10) = ? ORDER BY dropped_at ASC",
+            """
+            SELECT ticker, rule, reason, level, bar_ts, dropped_at FROM (
+                SELECT id, ticker, rule, reason, level, bar_ts, dropped_at,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ticker, rule, level_key
+                           ORDER BY dropped_at ASC, id ASC
+                       ) AS occurrence
+                FROM dropped_alerts
+                WHERE substr(dropped_at, 1, 10) = ?
+            )
+            WHERE occurrence = 1
+            ORDER BY dropped_at ASC, id ASC
+            """,
             (target,),
         ).fetchall()
     return [

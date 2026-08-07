@@ -400,6 +400,48 @@ def test_two_levels_dropped_in_one_bar_are_both_reported(tmp_db):
     assert len(store.dropped_on(tmp_db, date(2026, 8, 5))) == 2
 
 
+def test_the_same_level_held_back_all_afternoon_is_reported_once(tmp_db):
+    """The digest reports what was held back, not how often it was re-checked.
+
+    A level that qualifies once qualifies on every subsequent poll of the same
+    session, and each poll carries a fresh `bar_ts` — so the row-per-bar ledger
+    is correct and the digest's view of it is not. Five polls of one held-back
+    level is one thing to tell the user about, and the observable check for the
+    ceiling ("the other 2 appear in that evening's digest") reads as a failure
+    at any other number.
+    """
+    for hour, bar_minute in ((14, 24), (15, 27), (16, 30), (17, 32), (18, 46)):
+        store.record_dropped(
+            tmp_db, "NVDA", "armed_level", reason="daily ceiling of 3 reached",
+            bar_ts=f"2026-08-05T{hour:02d}:{bar_minute:02d}:00Z", level=214.0,
+            dropped_at=f"2026-08-05T{hour + 1:02d}:00:00Z",
+        )
+
+    assert row_count(tmp_db, "dropped_alerts") == 5
+
+    dropped = store.dropped_on(tmp_db, date(2026, 8, 5))
+    assert len(dropped) == 1
+    # The first time it was held back — the moment the ceiling actually bit.
+    assert dropped[0]["bar_ts"] == "2026-08-05T14:24:00Z"
+    assert dropped[0]["dropped_at"] == "2026-08-05T15:00:00Z"
+
+
+def test_two_levels_held_back_across_many_polls_stay_two(tmp_db):
+    for hour in (14, 15, 16):
+        for level in (214.0, 216.0):
+            store.record_dropped(
+                tmp_db, "NVDA", "armed_level", reason="daily ceiling of 3 reached",
+                bar_ts=f"2026-08-05T{hour:02d}:24:00Z", level=level,
+                dropped_at=f"2026-08-05T{hour:02d}:54:00Z",
+            )
+
+    dropped = store.dropped_on(tmp_db, date(2026, 8, 5))
+    assert [(r["ticker"], r["level"]) for r in dropped] == [
+        ("NVDA", 214.0),
+        ("NVDA", 216.0),
+    ]
+
+
 def test_digests_still_dedupe_without_a_level(tmp_db):
     # level is NULL for a digest, and SQL NULLs never compare equal — which is
     # why the key stores '' rather than leaving the column nullable inside it.
