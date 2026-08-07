@@ -58,6 +58,7 @@ from engine.suppressors import SuppressionContext, SuppressorRules
 from engine.triggers import Trigger
 from jobs import market_calendar, watchlist
 from jobs.cli import parse_args, prepare
+import render
 from render import template
 from sources import alpaca, store
 
@@ -207,7 +208,11 @@ def _run(
     sent = 0
     for item in to_send:
         trigger = item.trigger
-        if not telegram.send(template.render_alert(item), dry_run=dry_run,
+        # `narrate` rather than `render_alert`: prose when the model earns it,
+        # the identical template block when it does not. No news is passed —
+        # the intraday context forbids fetching any (`sources.intraday_run`),
+        # so the packet carries prices and nothing else.
+        if not telegram.send(render.narrate(item), dry_run=dry_run,
                              to_test_chat=to_test_chat):
             errors.append(f"delivery: {trigger.ticker} {trigger.level} not sent")
             continue

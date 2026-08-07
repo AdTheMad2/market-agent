@@ -30,6 +30,7 @@ from engine import ranking, suppressors
 from engine.suppressors import SuppressionContext, SuppressorRules
 from engine.triggers import Rules, evaluate
 from jobs import market_calendar, watchlist
+import render
 from render import template
 from sources import Earnings, MacroEvent, NewsItem, alpaca, edgar, finnhub, fred, store
 
@@ -251,6 +252,13 @@ def run(
         news=news,
         earnings=earnings,
         macro=macro,
+        # Each shown trigger gets its own prose attempt, capped by
+        # `dashboard.max_setups` — at most 8 model calls per digest, 2 digests a
+        # day. `narrate` swallows every provider failure individually, so a
+        # Gemini outage costs the digest its prose and not any of its entries.
+        # `news` is passed whole: `render.evidence.build_packet` filters it to
+        # each trigger's own ticker, which is the filtering that matters.
+        render_item=lambda item: render.narrate(item, news),
     )
 
     delivered = telegram.send(text, dry_run=dry_run, to_test_chat=to_test_chat)

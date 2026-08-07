@@ -24,7 +24,7 @@ See docs/SPEC.md §6.2 and docs/IMPLEMENTATION_PLAN.md Task 3.2.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -185,6 +185,7 @@ def render_digest(
     news: Sequence[NewsItem] = (),
     earnings: Sequence[Earnings] = (),
     macro: Sequence[MacroEvent] = (),
+    render_item: Callable[[Suppressed], str] = None,
 ) -> str:
     """A whole run as one message. Returns escaped MarkdownV2.
 
@@ -192,14 +193,22 @@ def render_digest(
     the in-process list from `engine.ranking.rank` — the intraday job that
     dropped them is a separate cron process and cannot hand anything to this one
     (docs/SPEC.md §6.3).
+
+    `render_item` renders one trigger's block and defaults to `render_alert`.
+    Phase 5 passes `render.narrate` through it so digest entries carry prose.
+    It is a parameter rather than an import because this module is the fallback
+    for the thing that would be imported: a dependency from here to the Gemini
+    client would mean a provider outage could take down the path that exists to
+    survive a provider outage.
     """
+    render_item = render_item or render_alert
     header = f"*{escape_md(_assert_no_recommendation(title))}*"
     if day is not None:
         header += f" — {escape_md(day.isoformat())}"
     blocks = [header]
 
     if items:
-        blocks.extend(render_alert(item) for item in items)
+        blocks.extend(render_item(item) for item in items)
     else:
         blocks.append(escape_md("No triggers fired. Levels unchanged."))
 
