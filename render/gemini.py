@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import requests  # noqa: F401 — imported so tests can patch the module attribute
 
@@ -32,10 +33,26 @@ MODEL = "gemini-3.6-flash"
 ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
 TIMEOUT = 20
 
-# Generous enough that thinking tokens do not eat the answer, small enough that
-# the model cannot write an essay. Phase 0 measured 74 thought tokens on a
-# three-word reply.
-MAX_OUTPUT_TOKENS = 512
+# Thinking tokens are billed against this budget and there is no way to switch
+# them off: `thinkingConfig.thinkingBudget: 0` is an HTTP 400 on this model,
+# measured 2026-08-07. Phase 0 saw 74 thought tokens on a three-word reply and
+# 512 looked generous; a real packet costs **842**, which left 512 producing
+# either a 429 or a sentence cut off mid-timestamp — "As of 2026-07-29T04:00" —
+# that the validator then accepted, because truncation removes content rather
+# than inventing it. Two live failures from one number being too small.
+MAX_OUTPUT_TOKENS = 2048
+
+# Free-tier requests-per-minute is low enough that a digest's eight calls in a
+# burst mostly 429. Spacing them costs a job that is already running hours
+# behind GitHub's scheduler (R-13) a handful of seconds, and buys prose on
+# entries that would otherwise silently fall back.
+PACE_SECONDS = 4.0
+
+# Anything other than STOP means the reply is not a finished thought. MAX_TOKENS
+# is the one that matters: it returns a truncated sentence that is entirely
+# packet-derived and so passes validation cleanly. A fragment is worse than no
+# prose — it reads as a system that broke mid-word.
+FINISHED = "STOP"
 
 SYSTEM_PROMPT = """\
 You rephrase a market observation for a human reader. You are given a JSON
@@ -55,6 +72,16 @@ Rules, in order of importance:
 4. State no date or time other than the packet's bar timestamp.
 5. Add no context you were not given — no history, no comparison to other
    companies, no explanation of why the move happened.
+
+Two things about how it should read. Your sentence is shown directly above a
+block listing every one of these numbers in a table, so:
+
+- Do not open by restating `bar_timestamp`. The reader can see the time; a
+  sentence beginning "At 2026-08-07T14:24:00Z" spends its first eight words on
+  something already on screen, in a format nobody reads aloud.
+- Do not use this packet's field names as English. "This observation is
+  demoted" is our internal word for it. Say what the caveat is instead: that
+  earnings are days away, that the level is one the reader asked about.
 
 The packet's fields mean:
 
@@ -85,14 +112,39 @@ class GeminiLLM:
     exceptional one, and Phase 0 found this provider intermittently
     unavailable."""
 
-    def __init__(self, *, api_key: str | None = None, timeout: int = TIMEOUT):
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        timeout: int = TIMEOUT,
+        pace: float = PACE_SECONDS,
+    ):
         self._key = api_key or os.environ.get("GEMINI_API_KEY")
         self._timeout = timeout
+        self._pace = pace
+        # `None`, not `0.0`. `time.monotonic()`'s origin is undefined and a
+        # small return value is legal, so "have I called yet?" cannot be asked
+        # by truthiness — on a clock reading 0.0 the pacing silently stops
+        # pacing, which is the one condition under which it is needed.
+        self._last_call: float | None = None
+
+    def _wait_turn(self) -> None:
+        """Space consecutive calls. Per instance, which is per digest run —
+        the object outlives the loop over a digest's entries and dies with the
+        job, so there is no state here that survives a process."""
+        if self._pace <= 0:
+            return
+        if self._last_call is not None:
+            elapsed = time.monotonic() - self._last_call
+            if elapsed < self._pace:
+                time.sleep(self._pace - elapsed)
+        self._last_call = time.monotonic()
 
     def phrase(self, packet: dict) -> str | None:
         if not self._key:
             return None
 
+        self._wait_turn()
         response = requests.post(
             ENDPOINT,
             headers={"x-goog-api-key": self._key, "Content-Type": "application/json"},
@@ -114,6 +166,8 @@ class GeminiLLM:
 
         candidates = response.json().get("candidates") or []
         if not candidates:
+            return None
+        if candidates[0].get("finishReason") != FINISHED:
             return None
         # Thought parts precede the answer part; the reply is always last.
         parts = candidates[0].get("content", {}).get("parts") or []
