@@ -4,9 +4,9 @@
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task.
 > Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **This plan is not authorised to execute.** Per the project kickoff, execution begins in a
-> later session on the user's explicit go-ahead. Nothing in `engine/`, `sources/`, `render/`,
-> `delivery/`, `scripts/` or `dashboard/` exists yet, by design.
+> **Execution is under way.** Phases 0–4 are built and live-verified; Phase 5 is in
+> progress. `engine/`, `sources/`, `render/`, `delivery/`, `jobs/` and `scripts/` all
+> exist. `dashboard/` is still empty — that is Phase 6.
 
 **Goal:** A single-user market agent that runs pre-market and post-close scans, arms
 price-level alerts during the session, delivers them to Telegram under a hard daily
@@ -18,7 +18,10 @@ turns computed evidence into prose via Gemini with a validator and a determinist
 fallback; `delivery/` sends Telegram messages. State is SQLite committed in-repo, and
 Vercel serves a static dashboard built from committed JSON.
 
-**Tech Stack:** Python 3.12, `pandas`, `pandas-market-calendars`, `requests`, `pytest`,
+**Tech Stack:** Python — 3.12 in Actions, 3.14 in the local venv, floor `>=3.12` in
+`pyproject.toml`. The two differ on purpose: Actions pins the version the tests are
+green on, and the local venv is whatever the workspace installed. `pandas`,
+`pandas-market-calendars`, `requests`, `pytest`,
 SQLite (stdlib `sqlite3`), GitHub Actions, Vercel Hobby, Telegram Bot API, Gemini Flash.
 
 ## Global Constraints
@@ -54,16 +57,16 @@ Every task's requirements implicitly include this section. Values are copied ver
 Each phase is independently useful and independently verifiable. A phase is done when its
 observable check produces its stated output — not when its code exists.
 
-| Phase | Delivers | Observable check |
-|---|---|---|
-| 0 | Repo, secrets, live quota verification | `verify_quotas.py` prints a live row from every provider; `verify_secrets.py` exits 0 and finds no secret in the tree |
-| 1 | Pure engine + tests | `pytest` green; `python -m engine.cli fixtures/bars_goog_ma150.json` prints the 150-day MA trigger |
-| 2 | Data layer + SQLite state | `market.db` holds 250 daily bars for every core-watchlist name; a second run adds zero rows |
-| 3 | **Post-close digest to Telegram** | A real digest arrives on the user's phone at ~17:15 ET on a trading day |
-| 4 | Intraday armed levels + ceiling | An armed level fires within one poll of being touched; a 4th trigger is dropped and appears in the post-close digest |
-| 5 | Gemini prose + validator | Alerts read as prose; an injected fabricated number is rejected and the template ships instead |
-| 6 | Dashboard on Vercel | Live URL renders four blocks, item caps hold on a deliberately overloaded fixture |
-| 7 | Weekly screened watchlist | Screened list regenerates on Sunday with the admitting rule recorded per entry |
+| Phase | Delivers | Observable check | Status |
+|---|---|---|---|
+| 0 | Repo, secrets, live quota verification | `verify_quotas.py` prints a live row from every provider; `verify_secrets.py` exits 0 and finds no secret in the tree | ✅ passed 2026-08-05 |
+| 1 | Pure engine + tests | `pytest` green; `python -m engine.cli fixtures/bars_goog_ma150.json` prints the 150-day MA trigger | ✅ passed 2026-08-06 |
+| 2 | Data layer + SQLite state | `market.db` holds 250 daily bars for every core-watchlist name; a second run adds zero rows | ✅ passed 2026-08-06 |
+| 3 | **Post-close digest to Telegram** | A real digest arrives on the user's phone at ~17:15 ET on a trading day | ✅ passed live 2026-08-07 |
+| 4 | Intraday armed levels + ceiling | An armed level fires within one poll of being touched; a 4th trigger is dropped and appears in the post-close digest | ✅ passed live 2026-08-07 |
+| 5 | Gemini prose + validator | Alerts read as prose; an injected fabricated number is rejected and the template ships instead | 🔨 in progress |
+| 6 | Dashboard on Vercel | Live URL renders four blocks, item caps hold on a deliberately overloaded fixture | ⬜ not started |
+| 7 | Weekly screened watchlist | Screened list regenerates on Sunday with the admitting rule recorded per entry | ⬜ blocked on OQ-2 |
 
 **Phase 3 is the first phase with user-visible value.** If the project stalls after Phase 3,
 the user still has a working daily digest. That ordering is deliberate.
@@ -87,17 +90,17 @@ Nothing is built on a free tier that has not been confirmed to exist *today*.
   `earnings_suppress_days`, `intraday_alert_ceiling: 3`, `screened_list_max`,
   `market_cap_floor_usd: 1_000_000_000`.
 
-- [ ] **Step 1:** `git init`; create the directory tree from SPEC.md §11 with `.gitkeep`
+- [x] **Step 1:** `git init`; create the directory tree from SPEC.md §11 with `.gitkeep`
       files. Create the venv: `python -m venv venv` (workspace convention — per-project venv).
-- [ ] **Step 2:** Write `.gitignore` containing at minimum `.env`, `venv/`, `__pycache__/`,
+- [x] **Step 2:** Write `.gitignore` containing at minimum `.env`, `venv/`, `__pycache__/`,
       `*.pyc`. Verify `.env` is ignored before any key is ever created.
-- [ ] **Step 3:** Write `config/.env.example` listing **key names only, never values**:
+- [x] **Step 3:** Write `config/.env.example` listing **key names only, never values**:
       `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `FINNHUB_API_KEY`,
       `MARKETAUX_API_KEY`, `GEMINI_API_KEY`, `FRED_API_KEY`, `TELEGRAM_BOT_TOKEN`,
       `TELEGRAM_CHAT_ID`.
-- [ ] **Step 4:** Write `config/rules.yml` with the keys above and a one-line comment per
+- [x] **Step 4:** Write `config/rules.yml` with the keys above and a one-line comment per
       threshold explaining what it controls. No value tuned to any account.
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 
 ### Task 0.2: `verify_secrets.py`
 
@@ -109,14 +112,14 @@ Nothing is built on a free tier that has not been confirmed to exist *today*.
   present in the environment **and** no value from `.env` appears anywhere in the tracked
   working tree.
 
-- [ ] **Step 1:** Write the failing test: given a temp tree containing a file with a fake
+- [x] **Step 1:** Write the failing test: given a temp tree containing a file with a fake
       secret value, `scan_tree_for_values([...])` returns that file path.
-- [ ] **Step 2:** Run it; expect FAIL (`scan_tree_for_values` not defined).
-- [ ] **Step 3:** Implement: read `.env.example` for names, read env for values, walk
+- [x] **Step 2:** Run it; expect FAIL (`scan_tree_for_values` not defined).
+- [x] **Step 3:** Implement: read `.env.example` for names, read env for values, walk
       `git ls-files` output, report any file containing any value. Never print the value
       itself — print only the file path and the variable name that leaked.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 ### Task 0.3: `verify_quotas.py` — the phase gate
 
@@ -127,16 +130,16 @@ Nothing is built on a free tier that has not been confirmed to exist *today*.
 - Produces: a table on stdout, one row per provider: name, endpoint hit, HTTP status,
   one field of live data, and the rate-limit headers returned.
 
-- [ ] **Step 1:** Implement one probe per provider — Alpaca daily bars for `AAPL`,
+- [x] **Step 1:** Implement one probe per provider — Alpaca daily bars for `AAPL`,
       Finnhub company news for `AAPL`, Marketaux `/news/all` for `AAPL`, Gemini a
       three-token completion, FRED a series metadata call, SEC EDGAR a submissions fetch
       with a descriptive User-Agent, Telegram `getMe`.
-- [ ] **Step 2:** Print each provider's returned rate-limit headers verbatim. **Do not
+- [x] **Step 2:** Print each provider's returned rate-limit headers verbatim. **Do not
       hardcode the documented quota** — the point of this script is to detect the day a
       documented quota stops being true.
-- [ ] **Step 3:** Run it. **This is the Phase 0 observable check.**
-- [ ] **Step 4:** Record the output as a dated block in `docs/RISKS.md` under R-1.
-- [ ] **Step 5:** Commit.
+- [x] **Step 3:** Run it. **This is the Phase 0 observable check.**
+- [x] **Step 4:** Record the output as a dated block in `docs/RISKS.md` under R-1.
+- [x] **Step 5:** Commit.
 
 **Phase 0 is done when:** `verify_quotas.py` shows a live 200 and real data from every
 provider in SPEC.md §4.1, and `verify_secrets.py` exits 0 with an empty leak report.
@@ -451,12 +454,15 @@ database is committed.
       `can't parse entities: Character '-' is reserved` — a bare `- ` bullet in the
       headline section that only a live send could surface, since the escaping test
       covered `render_alert` and not `render_digest`. Fixed in `a48c219`.
-- [ ] **Step 4:** Let it fire on schedule. **Phase 3 observable check: a digest arrives on
-      the phone at ~17:15 ET on a trading day, unprompted.** The 21:15 UTC run on
-      2026-08-06 did not fire — checked at 23:21 UTC, and `gh run list` shows only the two
-      manual dispatches. The workflows were registered at ~14:47 UTC the same day, and
-      GitHub commonly skips the first scheduled occurrence on a newly created workflow.
-      Nothing to fix yet; the next occurrence is the test.
+- [x] **Step 4:** Let it fire on schedule. **Phase 3 observable check: a digest arrives on
+      the phone at ~17:15 ET on a trading day, unprompted.** **Passed** — the post-close
+      run committed `4f88551` and the pre-market run committed `846a1ed`, both unprompted,
+      both with `kind="digest"` rows in `sent_alerts`. The first scheduled occurrence
+      (2026-08-06 21:15 UTC) was skipped, as expected on a newly registered workflow.
+      **The schedule lag is real and larger than the plan assumed:** that post-close fired
+      at 01:03 UTC against a 21:15 UTC cron — 3h48m late, so a digest written for 17:15 ET
+      landed at 21:03 ET. Recorded as R-13 in [RISKS.md](./RISKS.md); it is GitHub's free
+      scheduled queue, not a defect here, and nothing in the code can shorten it.
 - [x] **Step 5:** Commit.
 
 ### Task 3.4: Pre-market job
@@ -514,24 +520,28 @@ anything. **If the project stops here, it is still useful.**
 - [x] **Step 2:** Write the workflow: `cron: "*/15 14-20 * * 1-5"` plus `workflow_dispatch`.
       Add `concurrency: group: intraday, cancel-in-progress: false` so a delayed run cannot
       overlap the next and double-send.
-- [ ] **Step 3:** Arm a level deliberately close to the current price. Confirm the alert
-      arrives within one poll of the touch. **Five levels armed 2026-08-06** (temporary,
-      marked DELETE AFTER in `config/watchlist_core.yml`); the next session's first poll
-      is the test. `scripts/verify_intraday.py` replayed the 14:15-14:30 UTC window of
-      2026-08-06 through `jobs.intraday.run` against live Alpaca bars and produced the
-      predicted split, so the mechanism holds against real data. **Latency is what is
-      left**: a replay cannot show that an alert arrives *within one poll of the touch*.
-- [ ] **Step 4:** Arm five levels that all trigger. **Phase 4 observable check: exactly 3
+- [x] **Step 3:** Arm a level deliberately close to the current price. Confirm the alert
+      arrives within one poll of the touch. **Passed live 2026-08-07.** The pre-market run
+      armed all five levels from `config/watchlist_core.yml`; the session's first poll
+      (`5a05608`) sent on bar `14:24:00Z` at `14:54:20Z`.
+      **Read that latency correctly:** 30 minutes wall-clock, of which 15 are the SIP
+      delay this project accepts by design and the rest is the poll interval plus
+      GitHub's queue. The alert fired on the *first poll that could see the touch*, which
+      is the claim. It is not, and cannot be, a 30-second alert — see R-13.
+- [x] **Step 4:** Arm five levels that all trigger. **Phase 4 observable check: exactly 3
       alerts arrive; the other 2 appear in that evening's post-close digest as dropped.**
-      Same blocker as Step 3. Asserted in unit form by
-      `test_five_touches_send_three_and_drop_two` and
-      `test_the_two_dropped_are_recorded_for_the_evening_digest`, which between them found
-      the `sent_alerts` uniqueness defect that would have leaked the ceiling in production
-      (fixed in `7d49ff4`). Confirmed against live bars by `scripts/verify_intraday.py` on
-      2026-08-06: 5 touched, 3 sent, 2 dropped — AVGO 412.00, GOOGL 350.00 and GOOGL
-      352.00 sent, both NVDA levels held back. What remains is that the same split arrive
-      unprompted, and that the evening digest report the two.
-- [ ] **Step 5:** Commit.
+      **Passed live 2026-08-07** with the five temporary levels: `sent_alerts` holds AVGO
+      412.00, GOOGL 350.00 and GOOGL 352.00; `dropped_alerts` holds both NVDA levels with
+      reason `daily ceiling of 3 reached`. Every later poll of the session re-dropped the
+      same two — correct for the ledger, wrong for the digest, which would have listed
+      them five times each; `store.dropped_on` now collapses to the earliest row per
+      level (`9f865b1`), verified against the real `market.db` as 10 rows in, 2 reported.
+      Two defects the unit tests found first: the `sent_alerts` uniqueness key missing
+      `level` (`7d49ff4`), which would have leaked the ceiling in production.
+      **The temporary levels were removed from the YAML once the split was recorded** —
+      they were never levels anyone wanted watched, and leaving them re-arms five junk
+      alerts every morning.
+- [x] **Step 5:** Commit.
 
 ### Task 4.2: `verify_pipeline.py`
 

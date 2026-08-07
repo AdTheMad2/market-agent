@@ -15,30 +15,15 @@ tickers:
 # Optional manually-armed price levels, mirroring the "alert me if it goes past
 # X" workflow. Removed automatically at the post-close run once triggered.
 # Levels are public market prices and carry no personal information.
-# TEMPORARY — Phase 4 Step 4 verification, added 2026-08-06, DELETE AFTER.
 #
-# These are not levels anyone wants watched. They exist to trip the daily
-# ceiling on the first poll of the session so the observable check can be
-# observed: five qualify, exactly three are sent, two are dropped and reported
-# in that evening's post-close digest.
+# The pre-market job re-arms every level still listed here each morning, so a
+# level stays live until it is deleted from this file — disarming it in the
+# database is not enough.
 #
-# `direction: above` fires when the window's high reaches the level, so a level
-# already below the price fires on the first poll by construction. That is the
-# point — waiting for the market to cross five levels of its own accord makes
-# the test's outcome depend on the weather.
-armed_levels:
-  - ticker: GOOGL      # 2026-08-06 close 357.75
-    level: 350.0
-    direction: above
-  - ticker: GOOGL
-    level: 352.0
-    direction: above
-  - ticker: NVDA       # 2026-08-06 close 218.99
-    level: 214.0
-    direction: above
-  - ticker: NVDA
-    level: 216.0
-    direction: above
-  - ticker: AVGO       # 2026-08-06 close 420.56
-    level: 412.0
-    direction: above
+# The five levels that lived here on 2026-08-06/07 were temporary: they existed
+# to trip the daily ceiling on the first poll so the Phase 4 observable check
+# could be observed against real prices. It passed (3 sent, 2 held back) and
+# they were removed, because re-arming them would fire five junk alerts every
+# morning. `scripts/verify_intraday.py` replays that window on demand and needs
+# no armed level to do it.
+armed_levels: []

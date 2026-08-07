@@ -180,6 +180,49 @@ install at the **start** of Phase 2, not the middle.
 which decouples CI from the local host entirely. The local machine only needs to run the
 verification scripts.
 
+**Resolved 2026-08-06.** The alternative was taken: all three workflows pin
+`python-version: "3.12"` while the local venv stays on 3.14. Both are green.
+
+---
+
+### R-13 — GitHub's free scheduled queue runs late, by hours
+**Likelihood:** already the case, measured.
+
+**Impact:** the cron time in a workflow file is the earliest a run may start, not when it
+starts. Measured on this project:
+
+| Workflow | Cron | Actually ran | Lag |
+|---|---|---|---|
+| post-close | `15 21 * * 1-5` | 2026-08-07 01:03 UTC | 3h48m |
+| pre-market | `15 13 * * 1-5` | 2026-08-07 14:19 UTC | 1h04m |
+| intraday | `*/15 14-20 * * 1-5` | 14:54, 15:57, 17:00, 18:02, 19:16 UTC | ~1h between polls, not 15m |
+
+The intraday row is the one that matters. A `*/15` cron delivered five polls in a
+six-hour session instead of twenty-five. **The ceiling is unaffected** — it counts alerts,
+not polls — but the phrase "within one poll of the touch" describes a poll that is
+roughly hourly in practice, so a level touched just after a poll waits up to an hour on
+top of the 15-minute SIP delay.
+
+**Impact on the product, stated plainly:** this is a system that tells the user what
+happened, up to an hour or so after it happened. It was never a day-trading tool
+(SPEC.md §1), and this makes the floor concrete rather than changing the kind of thing it
+is. The post-close digest arriving at 21:03 ET instead of 17:15 ET is the more annoying
+half.
+
+**Mitigation:** none available on the free tier, and the plan's existing `:15`/`:45` rule
+is already the recommended mitigation — the lag is queue depth on GitHub's shared
+scheduler, not something a workflow can opt out of. What *is* actionable: never write a
+delivery-time promise into the prose. Every alert already states the bar timestamp it was
+computed from rather than the send time (SPEC.md §5), which is exactly the guarantee that
+survives this.
+
+**Watch for:** lag long enough that a post-close run crosses midnight UTC, which would
+file the digest under the following day and make `sent_count_today` see a fresh day. The
+2026-08-07 01:03 UTC run *already did this* — it recorded the 2026-08-06 session's digest
+against day `2026-08-07`. Harmless for a digest, which does not consume the intraday
+ceiling; it would not be harmless for an intraday alert, and intraday runs stop at
+20:00 UTC so they cannot reach midnight even with this lag.
+
 ---
 
 ## 3. Open questions
@@ -232,11 +275,16 @@ a higher ceiling. Raising the ceiling treats the symptom the project exists to c
 ---
 
 ### OQ-6 — Repository visibility
-**Status:** decided public (D-1), for unlimited Actions minutes.
-**Worth re-confirming with the user before the repo is created**, since it is effectively
-irreversible for anything already pushed. The alternative is a private repo at 2,000
-minutes/month, which fits the two daily digests comfortably but leaves little headroom for
-intraday polling.
+**Status:** **closed 2026-08-06.** Public, at
+`github.com/AdTheMad2/market-agent`, for unlimited Actions minutes. Confirmed with the
+user before creation, since it is effectively irreversible for anything already pushed.
+The alternative — a private repo at 2,000 minutes/month — fits the two daily digests
+comfortably but leaves little headroom for intraday polling.
+
+The standing consequence outlives the decision: **everything committed here is
+permanently public**, including `data/market.db`, which a bot rewrites several times a
+day. Nothing personal may enter the repository, and `config/watchlist_core.yml` carries
+that warning at the top of the file because it is the one a human hand-edits.
 
 ---
 
