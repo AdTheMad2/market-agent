@@ -225,6 +225,38 @@ ceiling; it would not be harmless for an intraday alert, and intraday runs stop 
 
 ---
 
+### R-14 — Gemini's free tier: bursts are refused, and thinking eats the answer
+**Likelihood:** already the case, measured 2026-08-07 building Phase 5.
+
+**Impact:** two distinct failures that both present as "the model said nothing".
+
+**Thinking tokens bill against `maxOutputTokens`.** A real evidence packet costs
+**842 thought tokens**. At the 512 the client shipped with, the model returned HTTP 200
+and a sentence cut off mid-timestamp — `"As of 2026-07-29T04:00"`. The validator accepted
+it, correctly: truncation removes content rather than inventing it, so nothing downstream
+could tell a fragment from a finished thought. There is no way to switch thinking off;
+`thinkingConfig.thinkingBudget: 0` is an HTTP 400 on `gemini-3.6-flash`.
+
+**Bursts are rate-limited.** A digest asks for up to `dashboard.max_setups` (8) phrasings
+back to back and most were answered with 429.
+
+**Mitigation, both in `render/gemini.py`:** the budget is 2048 and `finishReason` must be
+`STOP`, so a truncated reply is discarded rather than delivered; calls are spaced
+`PACE_SECONDS = 4.0`, which costs a job already hours behind GitHub's scheduler (R-13)
+nothing worth counting. A 429 that still gets through degrades that one entry to the
+template and is not retried — this provider was already found intermittently unavailable
+in Phase 0, and the design treats that as the normal condition rather than as an incident.
+
+**What this does not threaten:** the alert. Every failure here costs prose and nothing
+else. `render/__init__.py` ships the Phase 3 template on any of them, which is why
+Phase 5 was built as a layer over a working path rather than as a replacement for it.
+
+**Watch for:** the day the free tier's daily cap, rather than its per-minute rate, is the
+binding limit. Current usage is roughly 8 calls per digest × 2 digests + up to 3 intraday
+= ~19 a day. A larger watchlist scales the digest half linearly.
+
+---
+
 ## 3. Open questions
 
 ### OQ-1 — Private Discord community ingestion

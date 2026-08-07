@@ -4,9 +4,9 @@
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task.
 > Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **Execution is under way.** Phases 0–4 are built and live-verified; Phase 5 is in
-> progress. `engine/`, `sources/`, `render/`, `delivery/`, `jobs/` and `scripts/` all
-> exist. `dashboard/` is still empty — that is Phase 6.
+> **Execution is under way.** Phases 0–5 are built and live-verified; Phase 6 is next.
+> `engine/`, `sources/`, `render/`, `delivery/`, `jobs/` and `scripts/` all exist.
+> `dashboard/` is still empty — that is Phase 6.
 
 **Goal:** A single-user market agent that runs pre-market and post-close scans, arms
 price-level alerts during the session, delivers them to Telegram under a hard daily
@@ -64,7 +64,7 @@ observable check produces its stated output — not when its code exists.
 | 2 | Data layer + SQLite state | `market.db` holds 250 daily bars for every core-watchlist name; a second run adds zero rows | ✅ passed 2026-08-06 |
 | 3 | **Post-close digest to Telegram** | A real digest arrives on the user's phone at ~17:15 ET on a trading day | ✅ passed live 2026-08-07 |
 | 4 | Intraday armed levels + ceiling | An armed level fires within one poll of being touched; a 4th trigger is dropped and appears in the post-close digest | ✅ passed live 2026-08-07 |
-| 5 | Gemini prose + validator | Alerts read as prose; an injected fabricated number is rejected and the template ships instead | 🔨 in progress |
+| 5 | Gemini prose + validator | Alerts read as prose; an injected fabricated number is rejected and the template ships instead | ✅ passed live 2026-08-07 |
 | 6 | Dashboard on Vercel | Live URL renders four blocks, item caps hold on a deliberately overloaded fixture | ⬜ not started |
 | 7 | Weekly screened watchlist | Screened list regenerates on Sunday with the admitting rule recorded per entry | ⬜ blocked on OQ-2 |
 
@@ -572,10 +572,10 @@ anything. **If the project stops here, it is still useful.**
   containing every computed number, every rule name, and every headline with its URL and
   timestamp. **Nothing reaches the model that is not in this packet.**
 
-- [ ] **Step 1:** Write the failing test — every numeric field on the `Trigger` appears in
+- [x] **Step 1:** Write the failing test — every numeric field on the `Trigger` appears in
       the packet, and the packet contains no key not derived from inputs.
-- [ ] **Step 2:** Run; expect FAIL. **Step 3:** Implement. **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 2:** Run; expect FAIL. **Step 3:** Implement. **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 ### Task 5.2: The validator *(write this before the Gemini client)*
 
@@ -586,7 +586,7 @@ anything. **If the project stops here, it is still useful.**
 - Produces: `validate(prose: str, packet: dict) -> bool` — `False` if any numeric token,
   ticker, or date in `prose` is absent from `packet`.
 
-- [ ] **Step 1: Write the failing tests.** The adversarial case is the point:
+- [x] **Step 1: Write the failing tests.** The adversarial case is the point:
 
 ```python
 def test_rejects_fabricated_number(packet):
@@ -599,11 +599,11 @@ def test_rejects_fabricated_ticker(packet):
     assert validate("GOOG and MSFT both sit near support", packet) is False
 ```
 
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement. Tokenise numbers, uppercase ticker-shaped words, and dates;
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement. Tokenise numbers, uppercase ticker-shaped words, and dates;
       compare against a flattened set of packet values.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit.
 
 > The validator is written **before** the client on purpose. Building the generator first
 > creates pressure to loosen the check until the generator's output passes.
@@ -619,16 +619,29 @@ def test_rejects_fabricated_ticker(packet):
   `narrate(s, news) -> str` which calls the LLM, validates, and falls back to
   `render/template.py` on rejection, quota exhaustion, timeout, or any exception.
 
-- [ ] **Step 1:** Write the system prompt: the model receives the packet and is instructed
+- [x] **Step 1:** Write the system prompt: the model receives the packet and is instructed
       to phrase it for a human, add no facts, introduce no numbers, and make no
       recommendation. Give it the four rule names and what each means.
-- [ ] **Step 2:** Implement `narrate` with the fallback chain. **A failure here degrades
+- [x] **Step 2:** Implement `narrate` with the fallback chain. **A failure here degrades
       prose; it never blocks an alert.**
-- [ ] **Step 3:** Test the fallback by pointing the client at an invalid key and confirming
+- [x] **Step 3:** Test the fallback by pointing the client at an invalid key and confirming
       the templated alert still ships.
-- [ ] **Step 4:** **Phase 5 observable check:** alerts read as prose; injecting a
+- [x] **Step 4:** **Phase 5 observable check:** alerts read as prose; injecting a
       fabricated number into a mocked response causes the template to ship instead.
-- [ ] **Step 5:** Commit.
+      **Passed live 2026-08-07**, `scripts/verify_prose.py`: 3/3 samples replied, 3/3
+      validated, the injected `up 37.2% since April` shipped the template, and an invalid
+      key shipped the templated alert intact. The fabrication is injected into a *real*
+      reply rather than a mocked one, so the prose around it is exactly what the validator
+      would otherwise have accepted.
+      **Both halves of the check now run from one committed script**, and it is the only
+      way to answer the half no test can: whether the sentences are worth reading. Two
+      prompt revisions came out of reading them.
+- [x] **Step 5:** Commit.
+
+**Phase 5 is done when:** an alert reads as prose, and every way the model can fail —
+rejection, truncation, 429, invalid key, outage — still delivers the Phase 3 message.
+Both halves verified. The prose is an enhancement on a path that already worked; nothing
+in this phase can stop an alert arriving.
 
 ---
 

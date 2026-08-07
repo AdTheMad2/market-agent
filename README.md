@@ -27,9 +27,13 @@ armed levels were touched, exactly three alerts went out, and the other two were
 back at the ceiling and reported in that evening's digest — the ceiling working as
 specified, against real prices.
 
-Still to come: Gemini prose with a fabricated-number validator (Phase 5), the dashboard
-(Phase 6), and the weekly screened watchlist (Phase 7). Until Phase 5 lands, alerts are
-rendered by a deterministic template — which stays as the permanent fallback.
+Alerts are phrased by Gemini and checked against the evidence they came from: any number,
+ticker or date the model did not receive causes the whole sentence to be discarded and a
+deterministic template to ship instead. The template is the permanent fallback, not
+scaffolding — every failure of the model path lands on it, so nothing about the prose can
+stop an alert arriving.
+
+Still to come: the dashboard (Phase 6) and the weekly screened watchlist (Phase 7).
 
 See the phase table in [the implementation plan](docs/IMPLEMENTATION_PLAN.md) for the
 observable check behind each of those.
@@ -63,6 +67,9 @@ so it can be re-run after every change to that subsystem.
 ```bash
 python scripts/verify_secrets.py   # every key present; no key leaked into the tree
 python scripts/verify_quotas.py    # every provider's free tier still exists, live
+python scripts/verify_pipeline.py --no-send   # the whole chain, end to end
+python scripts/verify_intraday.py  # replay a real session window through the poll
+python scripts/verify_prose.py     # live model prose, the validator, and the fallback
 ```
 
 `verify_quotas.py` deliberately prints each provider's returned rate-limit headers rather
