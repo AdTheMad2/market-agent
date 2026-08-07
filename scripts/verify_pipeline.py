@@ -44,6 +44,7 @@ from engine.intraday import touched_levels  # noqa: E402
 from engine.suppressors import SuppressionContext, SuppressorRules  # noqa: E402
 from engine.triggers import Rules, evaluate  # noqa: E402
 from jobs import market_calendar, watchlist  # noqa: E402
+import render  # noqa: E402
 from render import template  # noqa: E402
 from scripts._dotenv import load_env  # noqa: E402
 from sources import alpaca, finnhub, fred, store  # noqa: E402
@@ -240,6 +241,15 @@ def _render(document: dict, triggers: list, now: datetime) -> str:
         dropped=[],
         day=now.date(),
         title="Pipeline verification (not an alert)",
+        # The same `render_item` the post-close job passes, so this stage
+        # exercises Phase 5 rather than the template underneath it. Without it
+        # the whole-chain check reported OK on a chain missing its last link:
+        # every provider live, and the model never called.
+        #
+        # No news is passed. This stage is about the chain being connected; the
+        # prose itself is `scripts/verify_prose.py`'s subject, and that script
+        # is the one to run after touching the prompt.
+        render_item=lambda item: render.narrate(item),
     )
     if not text.strip():
         raise RuntimeError("renderer produced an empty message")

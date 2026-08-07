@@ -16,7 +16,7 @@ import pytest
 
 from engine.suppressors import Suppressed
 from engine.triggers import Trigger
-from render.evidence import PACKET_KEYS, build_packet
+from render.evidence import PACKET_KEYS, PRECISION, build_packet
 from sources import NewsItem
 
 
@@ -59,7 +59,57 @@ def test_every_numeric_field_on_the_trigger_reaches_the_packet(suppressed):
     assert numeric, "the fixture stopped finding numeric fields; check the types"
     for name in numeric:
         assert name in packet, f"{name} is on Trigger and missing from the packet"
-        assert packet[name] == getattr(suppressed.trigger, name)
+        expected = getattr(suppressed.trigger, name)
+        if name in PRECISION and expected is not None:
+            expected = round(expected, PRECISION[name])
+        assert packet[name] == expected
+
+
+def test_numbers_arrive_at_the_precision_the_reader_will_see(trigger):
+    """A float is not a displayed number, and the model is told to copy.
+
+    A live pipeline run produced "crossed its 50-day moving average level of
+    356.50559999999996" beside a table reading 356.51. The model had copied the
+    packet exactly, as instructed, and the validator accepted an exact match, as
+    designed. The packet was the thing that was wrong.
+    """
+    raw = Suppressed(
+        trigger=Trigger(
+            **{
+                **trigger.__dict__,
+                "level": 356.50559999999996,
+                "price": 354.29999999999995,
+                "distance_pct": 0.6199999999999999,
+                "volume_ratio": 0.6499999999999999,
+                "rsi": 50.74999999999999,
+            }
+        ),
+        demoted=False,
+        reason=None,
+    )
+    packet = build_packet(raw, [])
+    assert packet["level"] == 356.51
+    assert packet["price"] == 354.3
+    assert packet["distance_pct"] == 0.62
+    assert packet["volume_ratio"] == 0.6
+    assert packet["rsi"] == 50.7
+
+
+def test_the_unrounded_float_is_no_longer_something_the_model_may_say(trigger):
+    """The rounding is not cosmetic — it narrows what the validator licenses."""
+    from render.validator import validate
+
+    raw = Suppressed(
+        trigger=Trigger(**{**trigger.__dict__, "level": 356.50559999999996}),
+        demoted=False,
+        reason=None,
+    )
+    packet = build_packet(raw, [])
+    assert validate("GOOGL crossed its 150-day average of 356.51", packet) is True
+    assert (
+        validate("GOOGL crossed its 150-day average of 356.50559999999996", packet)
+        is False
+    )
 
 
 def test_the_packet_carries_no_key_nobody_computed(suppressed):

@@ -54,9 +54,30 @@ PACKET_KEYS = (
 
 NEWS_KEYS = ("ticker", "headline", "source", "url", "published_at")
 
+# Decimal places per field, matching `render/template.py` exactly.
+#
+# The packet must carry numbers at the precision the reader sees, not at the
+# precision a float happens to have. A live run put
+# "crossed its 50-day moving average level of 356.50559999999996" into a
+# delivered sentence, beside a table reading 356.51 — the model had copied the
+# packet faithfully, which is what it is told to do, and the validator accepted
+# it, which is correct for an exact match. Neither component was wrong. The
+# packet was.
+PRECISION = {
+    "level": 2,
+    "price": 2,
+    "distance_pct": 2,
+    "volume_ratio": 1,
+    "rsi": 1,
+}
+
 
 def _news_entry(item: NewsItem) -> dict:
     return {key: getattr(item, key) for key in NEWS_KEYS}
+
+
+def _rounded(name: str, value: float | None) -> float | None:
+    return None if value is None else round(float(value), PRECISION[name])
 
 
 def build_packet(s: Suppressed, news: Sequence[NewsItem]) -> dict:
@@ -81,11 +102,11 @@ def build_packet(s: Suppressed, news: Sequence[NewsItem]) -> dict:
         "ticker": t.ticker,
         "rule": t.rule,
         "detail": t.detail,
-        "level": t.level,
-        "price": t.price,
-        "distance_pct": t.distance_pct,
-        "volume_ratio": t.volume_ratio,
-        "rsi": t.rsi,
+        "level": _rounded("level", t.level),
+        "price": _rounded("price", t.price),
+        "distance_pct": _rounded("distance_pct", t.distance_pct),
+        "volume_ratio": _rounded("volume_ratio", t.volume_ratio),
+        "rsi": _rounded("rsi", t.rsi),
         "bar_timestamp": t.bar_timestamp,
         "watchlist": t.watchlist,
         "demoted": s.demoted,
